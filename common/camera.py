@@ -13,16 +13,27 @@ from common.quaternion import qrot, qinverse
 
 def normalize_screen_coordinates(X, w, h): 
     assert X.shape[-1] == 2
-    
+    print("X shape: ", X.shape)
+    new_X = np.zeros(X.shape)
     # Normalize so that [0, w] is mapped to [-1, 1], while preserving the aspect ratio
-    return X/w*2 - [1, h/w]
+    for frame_id in range(X.shape[0]):
+        for joint_id in range(17): 
+            if X[frame_id, joint_id, 0] != 0 and X[frame_id, joint_id, 1] != 0:
+                new_X[frame_id, joint_id] = X[frame_id, joint_id]/w*2 - [1, h/w]
+    # return X/w*2 - [1, h/w]
+    return new_X
 
     
 def image_coordinates(X, w, h):
     assert X.shape[-1] == 2
-    
+    new_X = np.zeros(X.shape)
+    for frame_id in range(X.shape[0]):
+        for joint_id in range(17):
+            if X[frame_id, joint_id, 0] != 0 and X[frame_id, joint_id, 1] != 0:
+                new_X[frame_id, joint_id] = (X[frame_id, joint_id] + [1, h/w])*w/2
     # Reverse camera frame normalization
-    return (X + [1, h/w])*w/2
+    #return (X + [1, h/w])*w/2
+    return new_X
     
 
 def world_to_camera(X, R, t):
@@ -55,6 +66,8 @@ def project_to_2d(X, camera_params):
     c = camera_params[..., 2:4]
     k = camera_params[..., 4:7]
     p = camera_params[..., 7:]
+    #print("Camera params: ", camera_params)
+    #print("\n f, c, k, p: ", f, c, k, p)
     
     XX = torch.clamp(X[..., :2] / X[..., 2:], min=-1, max=1)
     r2 = torch.sum(XX[..., :2]**2, dim=len(XX.shape)-1, keepdim=True)

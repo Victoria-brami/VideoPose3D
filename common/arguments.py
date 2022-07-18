@@ -13,16 +13,16 @@ def parse_args():
     # General arguments
     parser.add_argument('-d', '--dataset', default='h36m', type=str, metavar='NAME', help='target dataset') # h36m or humaneva
     parser.add_argument('-k', '--keypoints', default='cpn_ft_h36m_dbb', type=str, metavar='NAME', help='2D detections to use')
-    parser.add_argument('-str', '--subjects-train', default='S1,S5,S6,S7,S8', type=str, metavar='LIST',
+    parser.add_argument('-str', '--subjects-train', default='vp1,vp2,vp3', type=str, metavar='LIST',
                         help='training subjects separated by comma')
-    parser.add_argument('-ste', '--subjects-test', default='S9,S11', type=str, metavar='LIST', help='test subjects separated by comma')
+    parser.add_argument('-ste', '--subjects-test', default='vp4', type=str, metavar='LIST', help='test subjects separated by comma')
     parser.add_argument('-sun', '--subjects-unlabeled', default='', type=str, metavar='LIST',
                         help='unlabeled subjects separated by comma for self-supervision')
     parser.add_argument('-a', '--actions', default='*', type=str, metavar='LIST',
                         help='actions to train/test on, separated by comma, or * for all')
     parser.add_argument('-c', '--checkpoint', default='checkpoint', type=str, metavar='PATH',
                         help='checkpoint directory')
-    parser.add_argument('--checkpoint-frequency', default=10, type=int, metavar='N',
+    parser.add_argument('--checkpoint-frequency', default=20, type=int, metavar='N',
                         help='create a checkpoint every N epochs')
     parser.add_argument('-r', '--resume', default='', type=str, metavar='FILENAME',
                         help='checkpoint to resume (file name)')
@@ -71,6 +71,12 @@ def parse_args():
     parser.add_argument('--viz-limit', type=int, default=-1, metavar='N', help='only render first N frames')
     parser.add_argument('--viz-downsample', type=int, default=1, metavar='N', help='downsample FPS by a factor N')
     parser.add_argument('--viz-size', type=int, default=5, metavar='N', help='image size')
+    
+    # Logs
+    parser.add_argument('--tb_logs', type=str, default='logs')
+    parser.add_argument('--seq_length', type=int, default=1000)
+    parser.add_argument('--seq_start', type=int, default=1000)
+    parser.add_argument('--pad', type=int, default=2000, help='number of stride frames between 2 sequences')
     
     parser.set_defaults(bone_length_term=True)
     parser.set_defaults(data_augmentation=True)
