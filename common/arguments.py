@@ -13,7 +13,7 @@ def parse_args():
     # General arguments
     parser.add_argument('-d', '--dataset', default='h36m', type=str, metavar='NAME', help='target dataset') # h36m or humaneva
     parser.add_argument('-k', '--keypoints', default='cpn_ft_h36m_dbb', type=str, metavar='NAME', help='2D detections to use')
-    parser.add_argument('-str', '--subjects-train', default='vp1,vp2,vp3', type=str, metavar='LIST',
+    parser.add_argument('-str', '--subjects-train', default='vp13', type=str, metavar='LIST',
                         help='training subjects separated by comma')
     parser.add_argument('-ste', '--subjects-test', default='vp4', type=str, metavar='LIST', help='test subjects separated by comma')
     parser.add_argument('-sun', '--subjects-unlabeled', default='', type=str, metavar='LIST',
@@ -30,6 +30,7 @@ def parse_args():
     parser.add_argument('--render', action='store_true', help='visualize a particular video')
     parser.add_argument('--by-subject', action='store_true', help='break down error by subject (on evaluation)')
     parser.add_argument('--export-training-curves', action='store_true', help='save training curves as .png images')
+    parser.add_argument('--debug', action='store_true', default='Flag to add when debugging')
 
     # Model arguments
     parser.add_argument('-s', '--stride', default=1, type=int, metavar='N', help='chunk size to use during training')
@@ -56,6 +57,12 @@ def parse_args():
     parser.add_argument('--linear-projection', action='store_true', help='use only linear coefficients for semi-supervised projection')
     parser.add_argument('--no-bone-length', action='store_false', dest='bone_length_term',
                         help='disable bone length term in semi-supervised settings')
+    parser.add_argument('--no-bone-symmetry', action='store_false', dest='bone_symmetry_term',
+                        help='disable bone symmetry term in semi-supervised settings')
+    parser.add_argument('--no-illegal-angle', action='store_false', dest='illegal_angle_term',
+                        help='disable illegal angle term in semi-supervised settings')
+    parser.add_argument('--lambda_sym', default=0.1, type=float, help='Coefficient for bone symmetry loss')
+    parser.add_argument('--lambda_angle', default=10., type=float, help='Coefficient for bone symmetry loss')
     parser.add_argument('--no-proj', action='store_true', help='disable projection for semi-supervised setting')
     
     # Visualization
@@ -93,3 +100,9 @@ def parse_args():
         exit()
 
     return args
+
+
+def parse_yacs_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--cfg', type=str, default=None, help='Configuration File')
+    return parser.parse_args()

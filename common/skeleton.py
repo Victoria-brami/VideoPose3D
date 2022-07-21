@@ -86,3 +86,26 @@ class Skeleton:
         for i, parent in enumerate(self._parents):
             if parent != -1:
                 self._children[parent].append(i)
+                
+                
+if __name__ == '__main__':
+    h36m_skeleton = Skeleton(parents=[-1,  0,  1,  2,  3,  4,  0,  6,  7,  8,  9,  0, 11, 12, 13, 14, 12,
+       16, 17, 18, 19, 20, 19, 22, 12, 24, 25, 26, 27, 28, 27, 30],
+       joints_left=[6, 7, 8, 9, 10, 16, 17, 18, 19, 20, 21, 22, 23],
+       joints_right=[1, 2, 3, 4, 5, 24, 25, 26, 27, 28, 29, 30, 31])
+    h36m_skeleton.remove_joints([4, 5, 9, 10, 11, 16, 20, 21, 22, 23, 24, 28, 29, 30, 31])
+            
+    # Rewire shoulders to the correct parents
+    h36m_skeleton._parents[11] = 8
+    h36m_skeleton._parents[14] = 8
+    print("LEFT JOINTS: ", h36m_skeleton._joints_left)
+    print("RIGHT JOINTS: ", h36m_skeleton._joints_right)
+    print("PARENT JOINTS: ", h36m_skeleton._parents)
+    
+    import torch
+    pred = torch.rand(1, 1, 17, 3)
+    print("\n Prediction: ", pred)
+    dists = pred[:, :, 1:] - pred[:, :, h36m_skeleton._parents[1:]]
+    print("\n Distances:", dists)
+    bone_lengths = torch.mean(torch.norm(dists, dim=3), dim=1)
+    print("\n Length of BONES: \n", bone_lengths)

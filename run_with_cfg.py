@@ -7,7 +7,8 @@
 
 import numpy as np
 
-from common.arguments import parse_args
+from common.arguments import parse_args, parse_yacs_args
+from configs import *
 import torch
 
 import torch.nn as nn
@@ -37,30 +38,31 @@ dad_metadata = {
     ]
 }
 
-args = parse_args()
-print(args)
+args = parse_yacs_args()
+update_config(cfg, args)
+print(cfg)
 
 try:
     # Create checkpoint directory if it does not exist
-    os.makedirs(args.checkpoint)
+    os.makedirs(cfg.LOGS.CHECKPOINT)
 except OSError as e:
     if e.errno != errno.EEXIST:
-        raise RuntimeError('Unable to create checkpoint directory:', args.checkpoint)
+        raise RuntimeError('Unable to create checkpoint directory:', cfg.LOGS.CHECKPOINT)
 
 print('Loading dataset...')
-dataset_path = '/datasets_local/DriveAndAct/data_3d_' + args.dataset + '_train.npz'
-if args.dataset == 'h36m':
+dataset_path = '/datasets_local/DriveAndAct/data_3d_' + cfg.DATASET.DATASET + '_train.npz'
+if cfg.DATASET.DATASET == 'h36m':
     from common.h36m_dataset import Human36mDataset
     dataset = Human36mDataset(dataset_path)
-elif args.dataset == 'dad':
+elif cfg.DATASET.DATASET == 'dad':
     from common.dad_dataset import DadHuman36MDataset
     dataset = DadHuman36MDataset(dataset_path)
-elif args.dataset.startswith('humaneva'):
+elif cfg.DATASET.DATASET.startswith('humaneva'):
     from common.humaneva_dataset import HumanEvaDataset
     dataset = HumanEvaDataset(dataset_path)
-elif args.dataset.startswith('custom'):
+elif cfg.DATASET.DATASET.startswith('custom'):
     from common.custom_dataset import CustomDataset
-    dataset = CustomDataset('/datasets_local/DriveAndAct/data_2d_' + args.dataset + '_' + args.keypoints + '.npz')
+    dataset = CustomDataset('/datasets_local/DriveAndAct/data_2d_' + cfg.DATASET.DATASET + '_' + cfg.DATASET.KEYPOINTS + '.npz')
 else:
     raise KeyError('Invalid dataset')
 
@@ -81,7 +83,7 @@ for subject in dataset.subjects():
             anim['positions_3d'] = positions_3d
 
 print('Loading 2D detections...')
-keypoints = np.load('/datasets_local/DriveAndAct/data_2d_' + args.dataset + '_' + args.keypoints + '.npz', allow_pickle=True)
+keypoints = np.load('/datasets_local/DriveAndAct/data_2d_' + cfg.DATASET.DATASET + '_' + cfg.DATASET.KEYPOINTS + '.npz', allow_pickle=True)
 keypoints_metadata = dad_metadata
 keypoints_symmetry = dad_metadata['keypoints_symmetry']
 kps_left, kps_right = list(keypoints_symmetry[0]), list(keypoints_symmetry[1])
@@ -114,12 +116,12 @@ for subject in keypoints.keys():
         cam = dataset.cameras()[subject][i]
         kps[..., :2] = normalize_screen_coordinates(kps[..., :2], w=cam['res_w'], h=cam['res_h'])
         keypoints[subject][action] = kps[..., :2]
-subjects_train = args.subjects_train.split(',')
-subjects_semi = [] if not args.subjects_unlabeled else args.subjects_unlabeled.split(',')
-if not args.render:
-    subjects_test = args.subjects_test.split(',')
+subjects_train = cfg.DATASET.SUBJECTS_TRAIN.split(',')
+subjects_semi = [] if not cfg.DATASET.SUBJECTS_UNLABELED else cfg.DATASET.SUBJECTS_UNLABELED.split(',')
+if not cfg.VIS.RENDER:
+    subjects_test = cfg.DATASET.SUBJECTS_TEST.split(',')
 else:
-    subjects_test = [args.viz_subject]
+    subjects_test = [cfg.VIS.SUBJECT]
 
 semi_supervised = len(subjects_semi) > 0
 if semi_supervised and not dataset.supports_semi_supervised():
@@ -143,7 +145,7 @@ def fetch(subjects, action_filter=None, subset=1, parse_3d_poses=True):
             poses_2d = np.array([keypoints[subject][action]])
             
             for i in range(len(poses_2d)): # Iterate across cameras
-                out_poses_2d.append(poses_2d[i][args.seq_start: args.seq_start + args.seq_length])
+                out_poses_2d.append(poses_2d[i][cfg.LOGS.SEQ_START: cfg.LOGS.SEQ_START + cfg.LOGS.SEQ_LENGTH])
                 
                
             # Replaced by
@@ -160,7 +162,7 @@ def fetch(subjects, action_filter=None, subset=1, parse_3d_poses=True):
                 poses_3d = dataset[subject][action]['positions_3d']
                 assert len(poses_3d) == len(poses_2d), 'Camera count mismatch'
                 for i in range(len(poses_3d)): # Iterate across cameras
-                    pose_3d = poses_3d[i][args.seq_start: args.seq_start + args.seq_length]
+                    pose_3d = poses_3d[i][cfg.LOGS.SEQ_START: cfg.LOGS.SEQ_START + cfg.LOGS.SEQ_LENGTH]
                     pose_3d = np.reshape(pose_3d, (len(pose_3d), 17, 3))
                     out_poses_3d.append(pose_3d)
     
@@ -169,7 +171,7 @@ def fetch(subjects, action_filter=None, subset=1, parse_3d_poses=True):
     if len(out_poses_3d) == 0:
         out_poses_3d = None
     
-    stride = args.downsample
+    stride = cfg.EXPS.DOWNSAMPLE
     if subset < 1:
         for i in range(len(out_poses_2d)):
             n_frames = int(round(len(out_poses_2d[i])//stride * subset)*stride)
@@ -187,7 +189,7 @@ def fetch(subjects, action_filter=None, subset=1, parse_3d_poses=True):
     
     return out_camera_params, out_poses_3d, out_poses_2d
 
-action_filter = None if args.actions == '*' else args.actions.split(',')
+action_filter = None if cfg.DATASET.ACTIONS == '*' else cfg.DATASET.ACTIONS.split(',')
 if action_filter is not None:
     print('Selected actions:', action_filter)
     
@@ -197,29 +199,29 @@ print("\n Loaded shapes: cam {}, pose_v {} {}, pose_v_2d {} {}".format(cameras_v
 
 
 print("Loading Model ...")
-filter_widths = [int(x) for x in args.architecture.split(',')]
+filter_widths = [int(x) for x in cfg.MODEL.ARCHITECTURE] # removed.split(',')
 print("Filter Width ", filter_widths)
-if not args.disable_optimizations and not args.dense and args.stride == 1:
+if not cfg.EXPS.DISABLE_OPTIMIZATIONS and not cfg.EXPS.DENSE and cfg.MODEL.STRIDE == 1:
     print("Loading Model Pos Train... 1")
     # Use optimized model for single-frame predictions
     print(poses_valid_2d[0].shape[-2], poses_valid_2d[0].shape[-1])
     model_pos_train = TemporalModelOptimized1f(poses_valid_2d[0].shape[-2], poses_valid_2d[0].shape[-1], dataset.skeleton().num_joints(),
-                                filter_widths=filter_widths, causal=args.causal, dropout=args.dropout, channels=args.channels)
+                                filter_widths=filter_widths, causal=cfg.MODEL.CAUSAL, dropout=cfg.MODEL.DROPOUT, channels=cfg.MODEL.CHANNELS)
 else:
     print("Loading Model Pos Train... 2")
     # When incompatible settings are detected (stride > 1, dense filters, or disabled optimization) fall back to normal model
     model_pos_train = TemporalModel(poses_valid_2d[0].shape[-2], poses_valid_2d[0].shape[-1], dataset.skeleton().num_joints(),
-                                filter_widths=filter_widths, causal=args.causal, dropout=args.dropout, channels=args.channels,
-                                dense=args.dense)
+                                filter_widths=filter_widths, causal=cfg.MODEL.CAUSAL, dropout=cfg.MODEL.DROPOUT, channels=cfg.MODEL.CHANNELS,
+                                dense=cfg.EXPS.DENSE)
     
 model_pos = TemporalModel(poses_valid_2d[0].shape[-2], poses_valid_2d[0].shape[-1], dataset.skeleton().num_joints(),
-                            filter_widths=filter_widths, causal=args.causal, dropout=args.dropout, channels=args.channels,
-                            dense=args.dense)
+                            filter_widths=filter_widths, causal=cfg.MODEL.CAUSAL, dropout=cfg.MODEL.DROPOUT, channels=cfg.MODEL.CHANNELS,
+                            dense=cfg.EXPS.DENSE)
 print("Model loaded!")
 receptive_field = model_pos.receptive_field()
 print('INFO: Receptive field: {} frames'.format(receptive_field))
 pad = (receptive_field - 1) // 2 # Padding on each side
-if args.causal:
+if cfg.MODEL.CAUSAL:
     print('INFO: Using causal convolutions')
     causal_shift = pad
 else:
@@ -234,8 +236,8 @@ if torch.cuda.is_available():
     model_pos = model_pos.cuda()
     model_pos_train = model_pos_train.cuda()
     
-if args.resume or args.evaluate:
-    chk_filename = os.path.join(args.checkpoint, args.resume if args.resume else args.evaluate)
+if cfg.TRAIN.RESUME or cfg.TRAIN.EVALUATE:
+    chk_filename = os.path.join(cfg.LOGS.CHECKPOINT, cfg.TRAIN.RESUME if cfg.TRAIN.RESUME else cfg.TRAIN.EVALUATE)
     print('Loading checkpoint', chk_filename)
     checkpoint = torch.load(chk_filename, map_location=lambda storage, loc: storage)
     print('This model was trained for {} epochs'.format(checkpoint['epoch']))
@@ -243,12 +245,12 @@ if args.resume or args.evaluate:
     model_pos.load_state_dict(checkpoint['model_pos'])
     
     print(checkpoint['model_traj'])
-    # if args.evaluate and 'model_traj' in checkpoint:
-    if args.evaluate and checkpoint["model_traj"] is not None:
+    # if cfg.TRAIN.EVALUATE and 'model_traj' in checkpoint:
+    if cfg.TRAIN.EVALUATE and checkpoint["model_traj"] is not None:
         # Load trajectory model if it contained in the checkpoint (e.g. for inference in the wild)
         model_traj = TemporalModel(poses_valid_2d[0].shape[-2], poses_valid_2d[0].shape[-1], 1,
-                            filter_widths=filter_widths, causal=args.causal, dropout=args.dropout, channels=args.channels,
-                            dense=args.dense)
+                            filter_widths=filter_widths, causal=cfg.MODEL.CAUSAL, dropout=cfg.MODEL.DROPOUT, channels=cfg.MODEL.CHANNELS,
+                            dense=cfg.EXPS.DENSE)
         if torch.cuda.is_available():
             model_traj = model_traj.cuda()
         model_traj.load_state_dict(checkpoint['model_traj'])
@@ -261,26 +263,26 @@ test_generator = UnchunkedGenerator(cameras_valid, poses_valid, poses_valid_2d,
                                     kps_left=kps_left, kps_right=kps_right, joints_left=joints_left, joints_right=joints_right)
 print('INFO: Testing on {} frames'.format(test_generator.num_frames()))
 
-if not args.evaluate:
-    cameras_train, poses_train, poses_train_2d = fetch(subjects_train, action_filter, subset=args.subset)
+if not cfg.TRAIN.EVALUATE:
+    cameras_train, poses_train, poses_train_2d = fetch(subjects_train, action_filter, subset=cfg.EXPS.SUBSET)
 
-    lr = args.learning_rate
+    lr = cfg.MODEL.LR
     if semi_supervised:
         cameras_semi, _, poses_semi_2d = fetch(subjects_semi, action_filter, parse_3d_poses=False)
         
-        if not args.disable_optimizations and not args.dense and args.stride == 1:
+        if not cfg.EXPS.DISABLE_OPTIMIZATIONS and not cfg.EXPS.DENSE and cfg.MODEL.STRIDE == 1:
             # Use optimized model for single-frame predictions
             model_traj_train = TemporalModelOptimized1f(poses_valid_2d[0].shape[-2], poses_valid_2d[0].shape[-1], 1,
-                    filter_widths=filter_widths, causal=args.causal, dropout=args.dropout, channels=args.channels)
+                    filter_widths=filter_widths, causal=cfg.MODEL.CAUSAL, dropout=cfg.MODEL.DROPOUT, channels=cfg.MODEL.CHANNELS)
         else:
             # When incompatible settings are detected (stride > 1, dense filters, or disabled optimization) fall back to normal model
             model_traj_train = TemporalModel(poses_valid_2d[0].shape[-2], poses_valid_2d[0].shape[-1], 1,
-                    filter_widths=filter_widths, causal=args.causal, dropout=args.dropout, channels=args.channels,
-                    dense=args.dense)
+                    filter_widths=filter_widths, causal=cfg.MODEL.CAUSAL, dropout=cfg.MODEL.DROPOUT, channels=cfg.MODEL.CHANNELS,
+                    dense=cfg.EXPS.DENSE)
         
         model_traj = TemporalModel(poses_valid_2d[0].shape[-2], poses_valid_2d[0].shape[-1], 1,
-                            filter_widths=filter_widths, causal=args.causal, dropout=args.dropout, channels=args.channels,
-                            dense=args.dense)
+                            filter_widths=filter_widths, causal=cfg.MODEL.CAUSAL, dropout=cfg.MODEL.DROPOUT, channels=cfg.MODEL.CHANNELS,
+                            dense=cfg.EXPS.DENSE)
         if torch.cuda.is_available():
             model_traj = model_traj.cuda()
             model_traj_train = model_traj_train.cuda()
@@ -298,7 +300,7 @@ if not args.evaluate:
     else:
         optimizer = optim.Adam(model_pos_train.parameters(), lr=lr, amsgrad=True)
         
-    lr_decay = args.lr_decay
+    lr_decay = cfg.MODEL.LR_DECAY
 
     losses_3d_train = []
     losses_3d_train_eval = []
@@ -309,23 +311,23 @@ if not args.evaluate:
     final_momentum = 0.001
     
     
-    train_generator = ChunkedGenerator(args.batch_size//args.stride, cameras_train, poses_train, poses_train_2d, args.stride,
-                                       pad=pad, causal_shift=causal_shift, shuffle=True, augment=args.data_augmentation,
+    train_generator = ChunkedGenerator(cfg.MODEL.BATCH_SIZE//cfg.MODEL.STRIDE, cameras_train, poses_train, poses_train_2d, cfg.MODEL.STRIDE,
+                                       pad=pad, causal_shift=causal_shift, shuffle=True, augment=cfg.MODEL.AUGMENTATION,
                                        kps_left=kps_left, kps_right=kps_right, joints_left=joints_left, joints_right=joints_right)
     train_generator_eval = UnchunkedGenerator(cameras_train, poses_train, poses_train_2d,
                                               pad=pad, causal_shift=causal_shift, augment=False)
     print('INFO: Training on {} frames'.format(train_generator_eval.num_frames()))
     if semi_supervised:
-        semi_generator = ChunkedGenerator(args.batch_size//args.stride, cameras_semi, None, poses_semi_2d, args.stride,
+        semi_generator = ChunkedGenerator(cfg.MODEL.BATCH_SIZE//cfg.MODEL.STRIDE, cameras_semi, None, poses_semi_2d, cfg.MODEL.STRIDE,
                                           pad=pad, causal_shift=causal_shift, shuffle=True,
-                                          random_seed=4321, augment=args.data_augmentation,
+                                          random_seed=4321, augment=cfg.MODEL.AUGMENTATION,
                                           kps_left=kps_left, kps_right=kps_right, joints_left=joints_left, joints_right=joints_right,
                                           endless=True)
         semi_generator_eval = UnchunkedGenerator(cameras_semi, None, poses_semi_2d,
                                                  pad=pad, causal_shift=causal_shift, augment=False)
         print('INFO: Semi-supervision on {} frames'.format(semi_generator_eval.num_frames()))
 
-    if args.resume:
+    if cfg.TRAIN.RESUME:
         epoch = checkpoint['epoch']
         if 'optimizer' in checkpoint and checkpoint['optimizer'] is not None:
             optimizer.load_state_dict(checkpoint['optimizer'])
@@ -342,11 +344,11 @@ if not args.evaluate:
     print('** Note: reported losses are averaged over all frames and test-time augmentation is not used here.')
     print('** The final evaluation will be carried out after the last training epoch.')
     
-    writer = SummaryWriter(log_dir=args.tb_logs)
+    writer = SummaryWriter(log_dir=cfg.LOGS.TENSORBOARD)
 
     
     # Pos model only
-    while epoch < args.epochs:
+    while epoch < cfg.MODEL.EPOCHS:
         start_time = time()
         epoch_loss_3d_train = 0
         epoch_loss_traj_train = 0
@@ -362,7 +364,7 @@ if not args.evaluate:
                 zip(train_generator.next_epoch(), semi_generator.next_epoch()):
                 
                 # Fall back to supervised training for the first epoch (to avoid instability)
-                skip = epoch < args.warmup
+                skip = epoch < cfg.EXPS.WARMUP
                 
                 cam_semi = torch.from_numpy(cam_semi.astype('float32'))
                 inputs_3d = torch.from_numpy(batch_3d.astype('float32'))
@@ -420,18 +422,18 @@ if not args.evaluate:
                     else:
                         target_semi = inputs_2d_semi[:, :, :, :2].contiguous()
                         
-                    projection_func = project_to_2d_linear if args.linear_projection else project_to_2d
+                    projection_func = project_to_2d_linear if cfg.EXPS.LINEAR_PROJECTION else project_to_2d
                     reconstruction_semi = projection_func(predicted_semi + predicted_traj_cat[split_idx:], cam_semi)
 
                     loss_reconstruction = mpjpe(reconstruction_semi, target_semi) # On 2D poses
                     
                     epoch_loss_2d_train_unlabeled += predicted_semi.shape[0]*predicted_semi.shape[1] * loss_reconstruction.item()
-                    if not args.no_proj:
+                    if not cfg.EXPS.NO_PROJ:
                         loss_total += loss_reconstruction
                        
                     
                     # Bone length term to enforce kinematic constraints
-                    if args.bone_length_term:
+                    if cfg.EXPS.BONE_LENGTH:
                         dists = predicted_3d_pos_cat[:, :, 1:] - predicted_3d_pos_cat[:, :, dataset.skeleton().parents()[1:]]
                         bone_lengths = torch.mean(torch.norm(dists, dim=3), dim=1)
                         penalty = torch.mean(torch.abs(torch.mean(bone_lengths[:split_idx], dim=0) \
@@ -442,7 +444,7 @@ if not args.evaluate:
 
                     ########################################################## ADDED ################################################
                     # Bone length term to enforce kinematic constraints
-                    if args.bone_symmetry_term:
+                    if cfg.EXPS.BONE_SYM:
                         dists = predicted_3d_pos[:, :, 1:] - predicted_3d_pos[:, :, dataset.skeleton().parents()[1:]]
                         bone_lengths = torch.mean(torch.norm(dists, dim=3), dim=1)
                         penalty = torch.mean(torch.abs(torch.mean(bone_lengths[[0,2,4,6,8,10,12,14]], dim=0) - torch.mean(bone_lengths[[1,3,5,7,9,11,13,15]], dim=0)))# replace by left kpts
@@ -456,7 +458,7 @@ if not args.evaluate:
                         writer.add_scalar('Train_Penalty/Bones_symmetry_penalty', penalty, epoch * train_generator.batch_size + batch_id)
                         writer.add_scalar('Train_Penalty/Semi/Bones_symmetry_penalty', semi_penalty, epoch * train_generator.batch_size + batch_id)
 
-                    if args.illegal_angle_term:
+                    if cfg.EXPS.ILLEGAL_ANGLE:
                         # Compute the vectors associated with bones
                         up_left_loss, up_right_loss, low_left_loss, low_right_loss, head_loss = angle_error(predicted_semi)
 
@@ -539,17 +541,17 @@ if not args.evaluate:
                 
                 ########################################################## ADDED ################################################
                 # Bone length term to enforce kinematic constraints
-                if args.bone_symmetry_term:
+                if cfg.EXPS.BONE_SYM:
                     dists = predicted_3d_pos[:, :, 1:] - predicted_3d_pos[:, :, dataset.skeleton().parents()[1:]]
                     bone_lengths = torch.mean(torch.norm(dists, dim=3), dim=1)
-                    penalty = args.lambda_sym * torch.mean(torch.abs(torch.mean(bone_lengths[[0,2,4,6,8,10,12,14]], dim=0) - torch.mean(bone_lengths[[1,3,5,7,9,11,13,15]], dim=0)))# replace by left kpts
+                    penalty = cfg.EXPS.LAMBDA_SYM * torch.mean(torch.abs(torch.mean(bone_lengths[[0,2,4,6,8,10,12,14]], dim=0) - torch.mean(bone_lengths[[1,3,5,7,9,11,13,15]], dim=0)))# replace by left kpts
                     loss_total += penalty
                     # Add logs to tensorboard
                     writer.add_scalar('Train_Penalty/Bones_symmetry_penalty', penalty, epoch * train_generator.num_batches + batch_id)
 
-                if args.illegal_angle_term:
+                if cfg.EXPS.ILLEGAL_ANGLE:
                     # Compute the vectors associated with bones
-                    up_left_loss, up_right_loss, low_left_loss, low_right_loss, head_loss = angle_error(predicted_3d_pos, debug=args.debug)
+                    up_left_loss, up_right_loss, low_left_loss, low_right_loss, head_loss = angle_error(predicted_3d_pos, debug=cfg.DEBUG)
 
                     # Compute the angle between these vectors
                     """  
@@ -559,7 +561,7 @@ if not args.evaluate:
                                         + low_right_loss * torch.exp(low_right_loss) \
                                         + head_loss * torch.exp(head_loss))
                     """  
-                    angles_penalty = args.lambda_angle * torch.mean(head_loss * torch.exp(head_loss)) \
+                    angles_penalty = cfg.EXPS.LAMBDA_ANGLE * torch.mean(head_loss * torch.exp(head_loss)) \
                         + torch.mean(low_right_loss * torch.exp(low_right_loss)) \
                         + torch.mean(low_left_loss * torch.exp(low_left_loss)) \
                         + torch.mean(up_left_loss * torch.exp(up_left_loss)) \
@@ -602,7 +604,7 @@ if not args.evaluate:
             N = 0
             val_batch_id = 0
             
-            if not args.no_eval:
+            if cfg.EXPS.EVAL:
                 # Evaluate on test set
                 for cam, batch, batch_2d in test_generator.next_epoch():
                     inputs_3d = torch.from_numpy(batch.astype('float32'))
@@ -748,7 +750,7 @@ if not args.evaluate:
 
         elapsed = (time() - start_time)/60
         
-        if args.no_eval:
+        if not cfg.EXPS.EVAL:
             print('[%d] time %.2f lr %f 3d_train %f' % (
                     epoch + 1,
                     elapsed,
@@ -785,14 +787,14 @@ if not args.evaluate:
         epoch += 1
         
         # Decay BatchNorm momentum
-        momentum = initial_momentum * np.exp(-epoch/args.epochs * np.log(initial_momentum/final_momentum))
+        momentum = initial_momentum * np.exp(-epoch/cfg.MODEL.EPOCHS * np.log(initial_momentum/final_momentum))
         model_pos_train.set_bn_momentum(momentum)
         if semi_supervised:
             model_traj_train.set_bn_momentum(momentum)
             
         # Save checkpoint if necessary
-        if epoch % args.checkpoint_frequency == 0:
-            chk_path = os.path.join(args.checkpoint, 'epoch_{}.bin'.format(epoch))
+        if epoch % cfg.LOGS.CHECKPOINT_FREQUENCY == 0:
+            chk_path = os.path.join(cfg.LOGS.CHECKPOINT, 'epoch_{}.bin'.format(epoch))
             print('Saving checkpoint to', chk_path)
             
             torch.save({
@@ -806,7 +808,7 @@ if not args.evaluate:
             }, chk_path)
             
         # Save training curves after every epoch, as .png images (if requested)
-        if args.export_training_curves and epoch > 3:
+        if cfg.LOGS.EXPORT_TRAINING_CURVES and epoch > 3:
             if 'matplotlib' not in sys.modules:
                 import matplotlib
                 matplotlib.use('Agg')
@@ -821,7 +823,7 @@ if not args.evaluate:
             plt.ylabel('MPJPE (m)')
             plt.xlabel('Epoch')
             plt.xlim((3, epoch))
-            plt.savefig(os.path.join(args.checkpoint, 'loss_3d.png'))
+            plt.savefig(os.path.join(cfg.LOGS.CHECKPOINT, 'loss_3d.png'))
 
             if semi_supervised:
                 plt.figure()
@@ -832,7 +834,7 @@ if not args.evaluate:
                 plt.ylabel('Mean distance (m)')
                 plt.xlabel('Epoch')
                 plt.xlim((3, epoch))
-                plt.savefig(os.path.join(args.checkpoint, 'loss_traj.png'))
+                plt.savefig(os.path.join(cfg.LOGS.CHECKPOINT, 'loss_traj.png'))
 
                 plt.figure()
                 plt.plot(epoch_x, losses_2d_train_labeled_eval[3:], color='C0')
@@ -843,7 +845,7 @@ if not args.evaluate:
                 plt.ylabel('MPJPE (2D)')
                 plt.xlabel('Epoch')
                 plt.xlim((3, epoch))
-                plt.savefig(os.path.join(args.checkpoint, 'loss_2d.png'))
+                plt.savefig(os.path.join(cfg.LOGS.CHECKPOINT, 'loss_2d.png'))
             plt.close('all')
     writer.close()
 
@@ -920,42 +922,42 @@ def evaluate(test_generator, action=None, return_predictions=False, use_trajecto
     return e1, e2, e3, ev
 
 
-if args.render:
+if cfg.VIS.RENDER:
     print('Rendering...')
     
-    input_keypoints = keypoints[args.viz_subject][args.viz_action].copy() # removed last key [args.viz_camera]
+    input_keypoints = keypoints[cfg.VIS.SUBJECT][cfg.VIS.ACTION].copy() # removed last key [cfg.VIS.CAMERA]
     ground_truth = None
-    if args.viz_subject in dataset.subjects() and args.viz_action in dataset[args.viz_subject]:
-        if 'positions_3d' in dataset[args.viz_subject][args.viz_action]:
-            ground_truth = dataset[args.viz_subject][args.viz_action]['positions_3d'].copy() # removed last key [args.viz_camera]
+    if cfg.VIS.SUBJECT in dataset.subjects() and cfg.VIS.ACTION in dataset[cfg.VIS.SUBJECT]:
+        if 'positions_3d' in dataset[cfg.VIS.SUBJECT][cfg.VIS.ACTION]:
+            ground_truth = dataset[cfg.VIS.SUBJECT][cfg.VIS.ACTION]['positions_3d'].copy() # removed last key [cfg.VIS.CAMERA]
             # Added
             ground_truth =  np.reshape(ground_truth[0], (len(ground_truth[0]), 17, 3))
     if ground_truth is None:
         print('INFO: this action is unlabeled. Ground truth will not be rendered.')
         
     gen = UnchunkedGenerator(None, None, [input_keypoints],
-                             pad=pad, causal_shift=causal_shift, augment=args.test_time_augmentation,
+                             pad=pad, causal_shift=causal_shift, augment=cfg.MODEL.TEST_TIME_AUGMENTATION,
                              kps_left=kps_left, kps_right=kps_right, joints_left=joints_left, joints_right=joints_right)
     prediction = evaluate(gen, return_predictions=True)
     if model_traj is not None and ground_truth is None:
         prediction_traj = evaluate(gen, return_predictions=True, use_trajectory_model=True)
         prediction += prediction_traj
     
-    if args.viz_export is not None:
-        print('Exporting joint positions to', args.viz_export)
+    if cfg.VIS.EXPORT is not None:
+        print('Exporting joint positions to', cfg.VIS.EXPORT)
         # Predictions are in camera space
-        np.save(args.viz_export, prediction)
+        np.save(cfg.VIS.EXPORT, prediction)
     
-    if args.viz_output is not None:
+    if cfg.VIS.OUTPUT is not None:
         if ground_truth is not None:
             # Reapply trajectory
             trajectory = ground_truth[:, :1]
             ground_truth[:, 1:] += trajectory
             prediction += trajectory
         
-        
+        """
         # Invert camera transformation
-        cam = dataset.cameras()[args.viz_subject][args.viz_camera]
+        cam = dataset.cameras()[cfg.VIS.SUBJECT][cfg.VIS.CAMERA]
         if ground_truth is not None:
             prediction = camera_to_world(prediction, R=cam['orientation'], t=cam['translation'])
             ground_truth = camera_to_world(ground_truth, R=cam['orientation'], t=cam['translation'])
@@ -963,25 +965,25 @@ if args.render:
             # If the ground truth is not available, take the camera extrinsic params from a random subject.
             # They are almost the same, and anyway, we only need this for visualization purposes.
             for subject in dataset.cameras():
-                if 'orientation' in dataset.cameras()[subject][args.viz_camera]:
-                    rot = dataset.cameras()[subject][args.viz_camera]['orientation']
+                if 'orientation' in dataset.cameras()[subject][cfg.VIS.CAMERA]:
+                    rot = dataset.cameras()[subject][cfg.VIS.CAMERA]['orientation']
                     break
             prediction = camera_to_world(prediction, R=rot, t=0)
             # We don't have the trajectory, but at least we can rebase the height
             prediction[:, :, 2] -= np.min(prediction[:, :, 2])
-        """"""
+        """
         anim_output = {'Reconstruction': prediction}
-        if ground_truth is not None and not args.viz_no_ground_truth:
+        if ground_truth is not None and not cfg.VIS.NO_GT:
             anim_output['Ground truth'] = ground_truth
         
         input_keypoints = image_coordinates(input_keypoints[..., :2], w=cam['res_w'], h=cam['res_h'])
         
         from common.visualization import render_animation
         render_animation(input_keypoints, keypoints_metadata, anim_output,
-                         dataset.skeleton(), dataset.fps(), args.viz_bitrate, cam['azimuth'], args.viz_output,
-                         limit=args.viz_limit, downsample=args.viz_downsample, size=args.viz_size,
-                         input_video_path=args.viz_video, viewport=(cam['res_w'], cam['res_h']),
-                         input_video_skip=args.viz_skip)
+                         dataset.skeleton(), dataset.fps(), cfg.VIS.BITRATE, cam['azimuth'], cfg.VIS.OUTPUT,
+                         limit=cfg.VIS.FRAME_LIMIT, downsample=cfg.VIS.DOWNSAMPLE, size=cfg.VIS.SIZE,
+                         input_video_path=cfg.VIS.VIDEO, viewport=(cam['res_w'], cam['res_h']),
+                         input_video_skip=cfg.VIS.SKIP)
     
 else:
     print('Evaluating...')
@@ -1008,17 +1010,17 @@ else:
             poses_2d = np.array([keypoints[subject][action]])
             
             for i in range(len(poses_2d)): # Iterate across cameras
-                out_poses_2d.append(poses_2d[i][args.seq_start: args.seq_start + args.seq_length])
+                out_poses_2d.append(poses_2d[i][cfg.LOGS.SEQ_START: cfg.LOGS.SEQ_START + cfg.LOGS.SEQ_LENGTH])
 
             poses_3d = dataset[subject][action]['positions_3d']
             assert len(poses_3d) == len(poses_2d), 'Camera count mismatch'
             for i in range(len(poses_3d)): # Iterate across cameras
-                pose_3d = poses_3d[i][args.seq_start: args.seq_start + args.seq_length]
+                pose_3d = poses_3d[i][cfg.LOGS.SEQ_START: cfg.LOGS.SEQ_START + cfg.LOGS.SEQ_LENGTH]
                 pose_3d = np.reshape(pose_3d, (len(pose_3d), 17, 3))
                 out_poses_3d.append(pose_3d)
     
 
-        stride = args.downsample
+        stride = cfg.EXPS.DOWNSAMPLE
         if stride > 1:
             # Downsample as requested
             for i in range(len(out_poses_2d)):
@@ -1046,7 +1048,7 @@ else:
 
             poses_act, poses_2d_act = fetch_actions(actions[action_key])
             gen = UnchunkedGenerator(None, poses_act, poses_2d_act,
-                                     pad=pad, causal_shift=causal_shift, augment=args.test_time_augmentation,
+                                     pad=pad, causal_shift=causal_shift, augment=cfg.MODEL.TEST_TIME_AUGMENTATION,
                                      kps_left=kps_left, kps_right=kps_right, joints_left=joints_left, joints_right=joints_right)
             e1, e2, e3, ev = evaluate(gen, action_key)
             errors_p1.append(e1)
@@ -1059,7 +1061,7 @@ else:
         print('Protocol #3 (N-MPJPE) action-wise average:', round(np.mean(errors_p3), 1), 'mm')
         print('Velocity      (MPJVE) action-wise average:', round(np.mean(errors_vel), 2), 'mm')
 
-    if not args.by_subject:
+    if not cfg.TRAIN.BY_SUBJECT:
         run_evaluation(all_actions, action_filter)
     else:
         for subject in all_actions_by_subject.keys():

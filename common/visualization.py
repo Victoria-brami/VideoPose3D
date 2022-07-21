@@ -159,18 +159,30 @@ def render_animation(keypoints, keypoints_metadata, poses, skeleton, fps, bitrat
                     continue
                     
                 if len(parents) == keypoints.shape[1] and keypoints_metadata['layout_name'] != 'coco':
-                    # Draw skeleton only if keypoints match (otherwise we don't have the parents definition)
-                    lines.append(ax_in.plot([keypoints[i, j, 0], keypoints[i, j_parent, 0]],
-                                            [keypoints[i, j, 1], keypoints[i, j_parent, 1]], color='pink'))
-
+                    if (keypoints[i, j, 0] != 0 and keypoints[i, j, 1] != 0) and (keypoints[i, j_parent, 0] != 0 and keypoints[i, j_parent, 1] != 0):
+                        # Draw skeleton only if keypoints match (otherwise we don't have the parents definition)
+                        lines.append(ax_in.plot([keypoints[i, j, 0], keypoints[i, j_parent, 0]],
+                                                [keypoints[i, j, 1], keypoints[i, j_parent, 1]], color='pink'))
+                    else:
+                        lines.append(ax_in.plot([0, 0],
+                                                [0, 0], color='navy'))
                 col = 'red' if j in skeleton.joints_right() else 'black'
                 for n, ax in enumerate(ax_3d):
                     pos = poses[n][i]
-                    lines_3d[n].append(ax.plot([pos[j, 0], pos[j_parent, 0]],
-                                               [pos[j, 1], pos[j_parent, 1]],
-                                               [pos[j, 2], pos[j_parent, 2]], zdir='z', c=col))
+                    if (keypoints[i, j, 0] != 0 and keypoints[i, j, 1] != 0) and (keypoints[i, j_parent, 0] != 0 and keypoints[i, j_parent, 1] != 0):
+                        lines_3d[n].append(ax.plot([pos[j, 0], pos[j_parent, 0]],
+                                                [-pos[j, 1], -pos[j_parent, 1]],
+                                                [pos[j, 2], pos[j_parent, 2]], zdir='z', c=col))
+                    else:
+                         lines_3d[n].append(ax.plot([0, 0],
+                                                [0, 0],
+                                                [0, 0], zdir='z', c="blue"))
 
+            # vis_keypoints = keypoints[i][keypoints[i] != 0]
+            # vis_keypoints = vis_keypoints.reshape(len(vis_keypoints) // 2, 2)
+            # points = ax_in.scatter(*vis_keypoints.T, 10, color=colors_2d[keypoints[i] != 0], edgecolors='white', zorder=10)
             points = ax_in.scatter(*keypoints[i].T, 10, color=colors_2d, edgecolors='white', zorder=10)
+            
 
             initialized = True
         else:
@@ -181,15 +193,27 @@ def render_animation(keypoints, keypoints_metadata, poses, skeleton, fps, bitrat
                     continue
                 
                 if len(parents) == keypoints.shape[1] and keypoints_metadata['layout_name'] != 'coco':
-                    lines[j-1][0].set_data([keypoints[i, j, 0], keypoints[i, j_parent, 0]],
-                                           [keypoints[i, j, 1], keypoints[i, j_parent, 1]])
+                    if (keypoints[i, j, 0] != 0 and keypoints[i, j, 1] != 0) and (keypoints[i, j_parent, 0] != 0 and keypoints[i, j_parent, 1] != 0):
+                        lines[j-1][0].set_data([keypoints[i, j, 0], keypoints[i, j_parent, 0]],
+                                            [keypoints[i, j, 1], keypoints[i, j_parent, 1]])
+                    else:
+                        lines[j-1][0].set_data([0, 0],
+                                            [0, 0])
 
                 for n, ax in enumerate(ax_3d):
                     pos = poses[n][i]
-                    lines_3d[n][j-1][0].set_xdata(np.array([pos[j, 0], pos[j_parent, 0]]))
-                    lines_3d[n][j-1][0].set_ydata(np.array([pos[j, 1], pos[j_parent, 1]]))
-                    lines_3d[n][j-1][0].set_3d_properties(np.array([pos[j, 2], pos[j_parent, 2]]), zdir='z')
+                    if (keypoints[i, j, 0] != 0 and keypoints[i, j, 1] != 0) and (keypoints[i, j_parent, 0] != 0 and keypoints[i, j_parent, 1] != 0):
+                        lines_3d[n][j-1][0].set_xdata(np.array([pos[j, 0], pos[j_parent, 0]]))
+                        lines_3d[n][j-1][0].set_ydata(np.array([pos[j, 1], pos[j_parent, 1]]))
+                        lines_3d[n][j-1][0].set_3d_properties(np.array([pos[j, 2], pos[j_parent, 2]]), zdir='z')
+                    else:
+                        lines_3d[n][j-1][0].set_xdata(np.array([0, 0]))
+                        lines_3d[n][j-1][0].set_ydata(np.array([0, 0]))
+                        lines_3d[n][j-1][0].set_3d_properties(np.array([0, 0]), zdir='z')
 
+            # vis_keypoints = keypoints[i][keypoints[i] != 0]
+            # vis_keypoints = vis_keypoints.reshape(len(vis_keypoints) // 2, 2)
+            # points.set_offsets(vis_keypoints)
             points.set_offsets(keypoints[i])
         
         print('{}/{}      '.format(i, limit), end='\r')
