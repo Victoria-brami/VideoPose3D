@@ -60,7 +60,7 @@ def downsample_tensor(X, factor):
     return np.mean(X[:length].reshape(-1, factor, *X.shape[1:]), axis=1)
 
 def render_animation(keypoints, keypoints_metadata, poses, skeleton, fps, bitrate, azim, output, viewport,
-                     limit=-1, downsample=1, size=6, input_video_path=None, input_video_skip=0):
+                     limit=-1, downsample=1, size=6, input_video_path=None, input_video_skip=0, elev=10.):
     """
     TODO
     Render an animation. The supported output modes are:
@@ -84,10 +84,11 @@ def render_animation(keypoints, keypoints_metadata, poses, skeleton, fps, bitrat
     radius = 1.7
     for index, (title, data) in enumerate(poses.items()):
         ax = fig.add_subplot(1, 1 + len(poses), index+2, projection='3d')
-        ax.view_init(elev=15., azim=azim)
+        ax.view_init(elev=elev, azim=azim)
         ax.set_xlim3d([-radius/2, radius/2])
-        ax.set_zlim3d([0, radius])
-        ax.set_ylim3d([-radius/2, radius/2])
+        ax.set_ylim3d([0, radius])
+        ax.set_ylim3d([radius/2, radius/2*3])
+        ax.set_zlim3d([-radius/2, radius/2]) # exchange limits for y and z
         try:
             ax.set_aspect('equal')
         except NotImplementedError:
@@ -143,9 +144,9 @@ def render_animation(keypoints, keypoints_metadata, poses, skeleton, fps, bitrat
     def update_video(i):
         nonlocal initialized, image, lines, points
 
-        for n, ax in enumerate(ax_3d):
-            ax.set_xlim3d([-radius/2 + trajectories[n][i, 0], radius/2 + trajectories[n][i, 0]])
-            ax.set_ylim3d([-radius/2 + trajectories[n][i, 1], radius/2 + trajectories[n][i, 1]])
+        #for n, ax in enumerate(ax_3d):
+        #    ax.set_xlim3d([-radius/2 + trajectories[n][i, 0], radius/2 + trajectories[n][i, 0]])
+        #    ax.set_ylim3d([-radius/2 + trajectories[n][i, 1], radius/2 + trajectories[n][i, 1]])
 
         # Update 2D poses
         joints_right_2d = keypoints_metadata['keypoints_symmetry'][1]
@@ -153,31 +154,62 @@ def render_animation(keypoints, keypoints_metadata, poses, skeleton, fps, bitrat
         colors_2d[joints_right_2d] = 'red'
         if not initialized:
             image = ax_in.imshow(all_frames[i], aspect='equal')
+            h, w, _ = all_frames[i].shape
             
             for j, j_parent in enumerate(parents):
                 if j_parent == -1:
                     continue
-                    
+                print("\n \n 2D KEYPOINTS \n ", keypoints[i])
+                print("Layout Name and Parents keys: ", keypoints_metadata['layout_name'], parents)    
                 if len(parents) == keypoints.shape[1] and keypoints_metadata['layout_name'] != 'coco':
-                    if (keypoints[i, j, 0] != 0 and keypoints[i, j, 1] != 0) and (keypoints[i, j_parent, 0] != 0 and keypoints[i, j_parent, 1] != 0):
+                    if (keypoints[i, j, 0] != 0 and keypoints[i, j, 1] != 0) and (keypoints[i, j_parent, 0] != 0 and keypoints[i, j_parent, 1] != 0) \
+                    and (keypoints[i, j, 0] < h and keypoints[i, j, 1] < w) and (keypoints[i, j_parent, 0] < h and keypoints[i, j_parent, 1] < w):
                         # Draw skeleton only if keypoints match (otherwise we don't have the parents definition)
                         lines.append(ax_in.plot([keypoints[i, j, 0], keypoints[i, j_parent, 0]],
                                                 [keypoints[i, j, 1], keypoints[i, j_parent, 1]], color='pink'))
                     else:
                         lines.append(ax_in.plot([0, 0],
-                                                [0, 0], color='navy'))
+                                                [0, 0], color='white'))
                 col = 'red' if j in skeleton.joints_right() else 'black'
                 for n, ax in enumerate(ax_3d):
                     pos = poses[n][i]
                     if (keypoints[i, j, 0] != 0 and keypoints[i, j, 1] != 0) and (keypoints[i, j_parent, 0] != 0 and keypoints[i, j_parent, 1] != 0):
                         lines_3d[n].append(ax.plot([pos[j, 0], pos[j_parent, 0]],
                                                 [-pos[j, 1], -pos[j_parent, 1]],
-                                                [pos[j, 2], pos[j_parent, 2]], zdir='z', c=col))
+                                                [pos[j, 2], pos[j_parent, 2]], zdir='y', c=col))
+                        
                     else:
                          lines_3d[n].append(ax.plot([0, 0],
                                                 [0, 0],
-                                                [0, 0], zdir='z', c="blue"))
+                                                [0, 0], zdir='y', color="white"))
 
+            
+            if keypoints[i, 11, 0] != 0 and keypoints[i, 12, 0] != 0 and keypoints[i, 11, 1] != 0 and keypoints[i, 12, 1] != 0 :   
+                col = "blue"
+            else:
+                col = "white"
+            extra_parent = 12
+            lines.append(ax_in.plot([keypoints[i, 11, 0], keypoints[i, 12, 0]],
+                                            [keypoints[i, 11, 1], keypoints[i, 12, 1]], color=col))
+            for n, ax in enumerate(ax_3d):
+                pos = poses[n][i]
+                lines_3d[n].append(ax.plot([pos[11, 0], pos[extra_parent, 0]],
+                                            [-pos[11, 1], -pos[extra_parent, 1]],
+                                            [pos[11, 2], pos[extra_parent, 2]], zdir='y', color=col))
+            
+            if keypoints[i, 5, 0] != 0 and keypoints[i, 6, 0] != 0 and keypoints[i, 5, 1] != 0 and keypoints[i, 6, 1] != 0 :
+                col = "blue"
+            else:
+                col = "white"
+            extra_parent = 6
+            lines.append(ax_in.plot([keypoints[i, 5, 0], keypoints[i, 6, 0]],
+                                            [keypoints[i, 5, 1], keypoints[i, 6, 1]], color=col))
+            for n, ax in enumerate(ax_3d):
+                pos = poses[n][i]
+                lines_3d[n].append(ax.plot([pos[5, 0], pos[extra_parent, 0]],
+                                        [-pos[5, 1], -pos[extra_parent, 1]],
+                                        [pos[5, 2], pos[extra_parent, 2]], zdir='y', color=col))
+                
             # vis_keypoints = keypoints[i][keypoints[i] != 0]
             # vis_keypoints = vis_keypoints.reshape(len(vis_keypoints) // 2, 2)
             # points = ax_in.scatter(*vis_keypoints.T, 10, color=colors_2d[keypoints[i] != 0], edgecolors='white', zorder=10)
@@ -194,26 +226,63 @@ def render_animation(keypoints, keypoints_metadata, poses, skeleton, fps, bitrat
                 
                 if len(parents) == keypoints.shape[1] and keypoints_metadata['layout_name'] != 'coco':
                     if (keypoints[i, j, 0] != 0 and keypoints[i, j, 1] != 0) and (keypoints[i, j_parent, 0] != 0 and keypoints[i, j_parent, 1] != 0):
+                        lines[j-1][0].set_color('pink')
                         lines[j-1][0].set_data([keypoints[i, j, 0], keypoints[i, j_parent, 0]],
                                             [keypoints[i, j, 1], keypoints[i, j_parent, 1]])
+                            
                     else:
+                        lines[j-1][0].set_color('white')
                         lines[j-1][0].set_data([0, 0],
                                             [0, 0])
 
                 for n, ax in enumerate(ax_3d):
                     pos = poses[n][i]
                     if (keypoints[i, j, 0] != 0 and keypoints[i, j, 1] != 0) and (keypoints[i, j_parent, 0] != 0 and keypoints[i, j_parent, 1] != 0):
+                        lines_3d[n][j-1][0].set_color(colors_2d[j-1])
                         lines_3d[n][j-1][0].set_xdata(np.array([pos[j, 0], pos[j_parent, 0]]))
-                        lines_3d[n][j-1][0].set_ydata(np.array([pos[j, 1], pos[j_parent, 1]]))
-                        lines_3d[n][j-1][0].set_3d_properties(np.array([pos[j, 2], pos[j_parent, 2]]), zdir='z')
+                        lines_3d[n][j-1][0].set_ydata(-np.array([pos[j, 1], pos[j_parent, 1]]))
+                        lines_3d[n][j-1][0].set_3d_properties(np.array([pos[j, 2], pos[j_parent, 2]]), zdir='y')
+                                      
                     else:
+                        lines_3d[n][j-1][0].set_color("white")
                         lines_3d[n][j-1][0].set_xdata(np.array([0, 0]))
                         lines_3d[n][j-1][0].set_ydata(np.array([0, 0]))
-                        lines_3d[n][j-1][0].set_3d_properties(np.array([0, 0]), zdir='z')
+                        lines_3d[n][j-1][0].set_3d_properties(np.array([0, 0]), zdir='y')
 
-            # vis_keypoints = keypoints[i][keypoints[i] != 0]
-            # vis_keypoints = vis_keypoints.reshape(len(vis_keypoints) // 2, 2)
-            # points.set_offsets(vis_keypoints)
+                # ADDED BONES
+            if keypoints[i, 11, 0] != 0 and keypoints[i, 12, 0] != 0 and keypoints[i, 11, 1] != 0 and keypoints[i, 12, 1] != 0:
+                lines[len(lines)-2][0].set_color('pink')
+                extra_parent = 12
+                lines[len(lines)-2][0].set_data([keypoints[i, 11, 0], keypoints[i, extra_parent, 0]],
+                                            [keypoints[i, 11, 1], keypoints[i, extra_parent, 1]])
+            if  keypoints[i, 5, 0] != 0 and keypoints[i, 6, 0] != 0 and keypoints[i, 5, 1] != 0 and keypoints[i, 6, 1] != 0:
+                lines[len(lines)-1][0].set_color('cornflowerblue')
+                extra_parent = 6
+                lines[len(lines)-1][0].set_data([keypoints[i, 5, 0], keypoints[i, extra_parent, 0]],
+                                            [keypoints[i, 5, 1], keypoints[i, extra_parent, 1]])
+            
+            for n, ax in enumerate(ax_3d): 
+                pos = poses[n][i]         
+                if keypoints[i, 11, 0] != 0 and keypoints[i, 12, 0] != 0 and keypoints[i, 11, 1] != 0 and keypoints[i, 12, 1] != 0:
+                    col = "blue"
+                else:
+                    col = "white"
+                extra_parent = 12
+                lines_3d[n][len(lines_3d[n])-2][0].set_color(col)
+                lines_3d[n][len(lines_3d[n])-2][0].set_xdata(np.array([pos[11, 0], pos[extra_parent, 0]]))
+                lines_3d[n][len(lines_3d[n])-2][0].set_ydata(-np.array([pos[11, 1], pos[extra_parent, 1]]))
+                lines_3d[n][len(lines_3d[n])-2][0].set_3d_properties(np.array([pos[11, 2], pos[extra_parent, 2]]), zdir='y')
+                            
+                if  keypoints[i, 5, 0] != 0 and keypoints[i, 6, 0] != 0 and keypoints[i, 5, 1] != 0 and keypoints[i, 6, 1] != 0:
+                    col = "blue"
+                else:
+                    col = "white"
+                extra_parent = 6
+                lines_3d[n][len(lines_3d[n])-1][0].set_color(col)
+                lines_3d[n][len(lines_3d[n])-1][0].set_xdata(np.array([pos[5, 0], pos[extra_parent, 0]]))
+                lines_3d[n][len(lines_3d[n])-1][0].set_ydata(-np.array([pos[5, 1], pos[extra_parent, 1]]))
+                lines_3d[n][len(lines_3d[n])-1][0].set_3d_properties(np.array([pos[5, 2], pos[extra_parent, 2]]), zdir='y')
+            
             points.set_offsets(keypoints[i])
         
         print('{}/{}      '.format(i, limit), end='\r')
@@ -223,6 +292,8 @@ def render_animation(keypoints, keypoints_metadata, poses, skeleton, fps, bitrat
     
     anim = FuncAnimation(fig, update_video, frames=np.arange(0, limit), interval=1000/fps, repeat=False)
     if output.endswith('.mp4'):
+        from IPython.display import HTML
+        HTML(anim.to_html5_video())  
         Writer = writers['ffmpeg']
         writer = Writer(fps=fps, metadata={}, bitrate=bitrate)
         anim.save(output, writer=writer)

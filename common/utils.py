@@ -8,6 +8,7 @@
 import torch
 import numpy as np
 import hashlib
+import random
 
 def wrap(func, *args, unsqueeze=False):
     """
@@ -45,3 +46,8 @@ def deterministic_random(min_value, max_value, data):
     digest = hashlib.sha256(data.encode()).digest()
     raw_value = int.from_bytes(digest[:4], byteorder='little', signed=False)
     return int(raw_value / (2**32 - 1) * (max_value - min_value)) + min_value
+
+def fixseed(i):
+    random.seed(i)
+    np.random.default_rng(i)
+    torch.manual_seed(i)

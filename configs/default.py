@@ -56,6 +56,8 @@ _C.VIS.NO_GT = False
 _C.VIS.FRAME_LIMIT = 200
 _C.VIS.SIZE = 6
 _C.VIS.DOWNSAMPLE = 4
+_C.VIS.ELEV = 10.
+_C.VIS.AZIM = 250
 
 # TRAIN
 _C.TRAIN = CN()
@@ -63,6 +65,7 @@ _C.TRAIN.IS_TRAIN = True
 _C.TRAIN.RESUME = ''
 _C.TRAIN.EVALUATE  = ''
 _C.TRAIN.BY_SUBJECT = False
+_C.TRAIN.NRUNS = 10
 
 # EXPS
 _C.EXPS = CN()
@@ -96,43 +99,64 @@ _C.LOGS.EXPORT_TRAINING_CURVES = True
 def update_config(cfg, args):
     cfg.defrost()
     cfg.merge_from_file(args.cfg)
-    # cfg.merge_from_list(args.opts)
     
-    # CREATE CHECKPOINT FILE
-    
-    if cfg.LOGS.SAVE_CHECKPOINT:
-        
+    if not cfg.TRAIN.IS_TRAIN:
         checkpoint_path = os.path.join("checkpoint")
-        tb_path = os.path.join("logs")
-        
-        if cfg.DEBUG:
-            cfg.LOGS.TENSORBOARD = os.path.join(tb_path, "debug")
-            cfg.LOGS.CHECKPOINT = os.path.join(checkpoint_path, "debug")
+        if cfg.MODEL.CAUSAL:
+            checkpoint_path = os.path.join(checkpoint_path, "causal")
+        if len(cfg.DATASET.SUBJECTS_UNLABELED) > 0:
+            checkpoint_path = os.path.join(checkpoint_path, "semi_supervised")
         else:
-            if cfg.MODEL.CAUSAL:
-                checkpoint_path = os.path.join(checkpoint_path, "causal")
-                tb_path = os.path.join(tb_path, "causal")
+            checkpoint_path = os.path.join(checkpoint_path, "fully_supervised")
+        arc = 'x'.join([str(filt) for filt in cfg.MODEL.ARCHITECTURE])
+        checkpoint_path = os.path.join(checkpoint_path, arc)
+               
+        if cfg.EXPS.BONE_SYM and not cfg.EXPS.ILLEGAL_ANGLE:
+            checkpoint_path += '_sym_{}'.format(cfg.EXPS.LAMBDA_SYM)
+        elif cfg.EXPS.BONE_SYM and cfg.EXPS.ILLEGAL_ANGLE:
+            checkpoint_path += '_sym_{}_angle_{}'.format(cfg.EXPS.LAMBDA_SYM, cfg.EXPS.LAMBDA_ANGLE)
+        elif not cfg.EXPS.BONE_SYM and cfg.EXPS.ILLEGAL_ANGLE:
+            checkpoint_path += '_angle_{}'.format(cfg.EXPS.LAMBDA_ANGLE)
+        cfg.TRAIN.EVALUATE = os.path.join(checkpoint_path, "epoch_{}.bin".format(cfg.LOGS.CHECKPOINT_FREQUENCY))
             
-            if len(cfg.DATASET.SUBJECTS_UNLABELED) > 0:
-                checkpoint_path = os.path.join(checkpoint_path, "semi_supervised")
-                tb_path = os.path.join(tb_path, "semi_supervised")
+    # CREATE CHECKPOINT FILE In CASE OF TRAINING
+    else:
+        if cfg.LOGS.SAVE_CHECKPOINT:
+            
+            checkpoint_path = os.path.join("checkpoint")
+            tb_path = os.path.join("logs")
+            
+            
+            if cfg.DEBUG:
+                cfg.LOGS.TENSORBOARD = os.path.join(tb_path, "debug")
+                cfg.LOGS.CHECKPOINT = os.path.join(checkpoint_path, "debug")
             else:
-                checkpoint_path = os.path.join(checkpoint_path, "fully_supervised")
-                tb_path = os.path.join(tb_path, "fully_supervised")
-            
-            arc = 'x'.join([str(filt) for filt in cfg.MODEL.ARCHITECTURE])
-            checkpoint_path = os.path.join(checkpoint_path, arc)
-            tb_path = os.path.join(tb_path, arc)
-            
-            if cfg.EXPS.BONE_SYM and not cfg.EXPS.ILLEGAL_ANGLE:
-                checkpoint_path += '_sym_{}'.format(cfg.EXPS.LAMBDA_SYM)
-                tb_path += '_sym_{}'.format(cfg.EXPS.LAMBDA_SYM)
-            elif cfg.EXPS.BONE_SYM and cfg.EXPS.ILLEGAL_ANGLE:
-                checkpoint_path += '_sym_{}_angle_{}'.format(cfg.EXPS.LAMBDA_SYM, cfg.EXPS.LAMBDA_ANGLE)
-                tb_path += '_sym_{}_angle_{}'.format(cfg.EXPS.LAMBDA_SYM, cfg.EXPS.LAMBDA_ANGLE)
-            elif not cfg.EXPS.BONE_SYM and cfg.EXPS.ILLEGAL_ANGLE:
-                checkpoint_path += '_sym_{}'.format(cfg.EXPS.LAMBDA_ANGLE)
-                tb_path += '_sym_{}'.format(cfg.EXPS.LAMBDA_ANGLE)
-            cfg.LOGS.TENSORBOARD = tb_path
-            cfg.LOGS.CHECKPOINT = checkpoint_path
+                if cfg.MODEL.CAUSAL:
+                    checkpoint_path = os.path.join(checkpoint_path, "causal")
+                    tb_path = os.path.join(tb_path, "causal")
+                
+                if len(cfg.DATASET.SUBJECTS_UNLABELED) > 0:
+                    checkpoint_path = os.path.join(checkpoint_path, "semi_supervised")
+                    tb_path = os.path.join(tb_path, "semi_supervised")
+                    checkpoint_path = os.path.join(checkpoint_path, "warmup_{}_label_{}_subset_{}".format(cfg.EXPS.WARMUP, cfg.DATASET.SUBJECTS_TRAIN, cfg.EXPS.SUBSET))
+                    tb_path = os.path.join(tb_path,  "warmup_{}_label_{}_subset_{}".format(cfg.EXPS.WARMUP, cfg.DATASET.SUBJECTS_TRAIN, cfg.EXPS.SUBSET))
+                else:
+                    checkpoint_path = os.path.join(checkpoint_path, "fully_supervised")
+                    tb_path = os.path.join(tb_path, "fully_supervised")
+                
+                arc = 'x'.join([str(filt) for filt in cfg.MODEL.ARCHITECTURE])
+                checkpoint_path = os.path.join(checkpoint_path, arc)
+                tb_path = os.path.join(tb_path, arc)
+                
+                if cfg.EXPS.BONE_SYM and not cfg.EXPS.ILLEGAL_ANGLE:
+                    checkpoint_path += '_sym_{}'.format(cfg.EXPS.LAMBDA_SYM)
+                    tb_path += '_sym_{}'.format(cfg.EXPS.LAMBDA_SYM)
+                elif cfg.EXPS.BONE_SYM and cfg.EXPS.ILLEGAL_ANGLE:
+                    checkpoint_path += '_sym_{}_angle_{}'.format(cfg.EXPS.LAMBDA_SYM, cfg.EXPS.LAMBDA_ANGLE)
+                    tb_path += '_sym_{}_angle_{}'.format(cfg.EXPS.LAMBDA_SYM, cfg.EXPS.LAMBDA_ANGLE)
+                elif not cfg.EXPS.BONE_SYM and cfg.EXPS.ILLEGAL_ANGLE:
+                    checkpoint_path += '_angle_{}'.format(cfg.EXPS.LAMBDA_ANGLE)
+                    tb_path += '_angle_{}'.format(cfg.EXPS.LAMBDA_ANGLE)
+                cfg.LOGS.TENSORBOARD = tb_path
+                cfg.LOGS.CHECKPOINT = checkpoint_path
     cfg.freeze()

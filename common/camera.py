@@ -45,7 +45,7 @@ def camera_to_world(X, R, t):
     return wrap(qrot, np.tile(R, (*X.shape[:-1], 1)), X) + t
 
     
-def project_to_2d(X, camera_params):
+def project_to_2d(X, camera_params, add_distortion=False):
     """
     Project 3D points to 2D using the Human3.6M camera projection function.
     This is a differentiable and batched reimplementation of the original MATLAB script.
@@ -66,19 +66,21 @@ def project_to_2d(X, camera_params):
     c = camera_params[..., 2:4]
     k = camera_params[..., 4:7]
     p = camera_params[..., 7:]
-    #print("Camera params: ", camera_params)
-    #print("\n f, c, k, p: ", f, c, k, p)
     
     XX = torch.clamp(X[..., :2] / X[..., 2:], min=-1, max=1)
     r2 = torch.sum(XX[..., :2]**2, dim=len(XX.shape)-1, keepdim=True)
 
-    radial = 1 + torch.sum(k * torch.cat((r2, r2**2, r2**3), dim=len(r2.shape)-1), dim=len(r2.shape)-1, keepdim=True)
-    tan = torch.sum(p*XX, dim=len(XX.shape)-1, keepdim=True)
+    if add_distortion:
+        radial = 1 + torch.sum(k * torch.cat((r2, r2**2, r2**3), dim=len(r2.shape)-1), dim=len(r2.shape)-1, keepdim=True)
+        tan = torch.sum(p*XX, dim=len(XX.shape)-1, keepdim=True)
+        XXX = XX*(radial + tan) + p*r2
+        return f*XXX + c
 
-    XXX = XX*(radial + tan) + p*r2
+    else:
+        XXX = XX
+        return f*XXX + c
     
-    return f*XXX + c
-
+    
 def project_to_2d_linear(X, camera_params):
     """
     Project 3D points to 2D using only linear parameters (focal length and principal point).

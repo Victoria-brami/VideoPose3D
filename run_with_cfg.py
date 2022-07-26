@@ -26,8 +26,10 @@ from common.model import *
 from common.loss import *
 from common.generators import ChunkedGenerator, UnchunkedGenerator
 from time import time
-from common.utils import deterministic_random
+from common.utils import deterministic_random, fixseed
 from torch.utils.tensorboard import SummaryWriter
+
+fixseed(44)
 
 dad_metadata = {
     'layout_name': 'dad',
@@ -44,7 +46,8 @@ print(cfg)
 
 try:
     # Create checkpoint directory if it does not exist
-    os.makedirs(cfg.LOGS.CHECKPOINT)
+    if cfg.TRAIN.IS_TRAIN and not os.path.isfile(cfg.LOGS.CHECKPOINT):
+        os.makedirs(cfg.LOGS.CHECKPOINT)
 except OSError as e:
     if e.errno != errno.EEXIST:
         raise RuntimeError('Unable to create checkpoint directory:', cfg.LOGS.CHECKPOINT)
@@ -238,6 +241,7 @@ if torch.cuda.is_available():
     
 if cfg.TRAIN.RESUME or cfg.TRAIN.EVALUATE:
     chk_filename = os.path.join(cfg.LOGS.CHECKPOINT, cfg.TRAIN.RESUME if cfg.TRAIN.RESUME else cfg.TRAIN.EVALUATE)
+    chk_filename = os.path.join(cfg.TRAIN.EVALUATE)
     print('Loading checkpoint', chk_filename)
     checkpoint = torch.load(chk_filename, map_location=lambda storage, loc: storage)
     print('This model was trained for {} epochs'.format(checkpoint['epoch']))
@@ -434,7 +438,7 @@ if not cfg.TRAIN.EVALUATE:
                     
                     # Bone length term to enforce kinematic constraints
                     if cfg.EXPS.BONE_LENGTH:
-                        dists = predicted_3d_pos_cat[:, :, 1:] - predicted_3d_pos_cat[:, :, dataset.skeleton().parents()[1:]]
+                        dists = predicted_semi[:, :, 1:] - predicted_semi[:, :, dataset.skeleton().parents()[1:]]
                         bone_lengths = torch.mean(torch.norm(dists, dim=3), dim=1)
                         penalty = torch.mean(torch.abs(torch.mean(bone_lengths[:split_idx], dim=0) \
                                                      - torch.mean(bone_lengths[split_idx:], dim=0)))
@@ -446,54 +450,55 @@ if not cfg.TRAIN.EVALUATE:
                     # Bone length term to enforce kinematic constraints
                     if cfg.EXPS.BONE_SYM:
                         dists = predicted_3d_pos[:, :, 1:] - predicted_3d_pos[:, :, dataset.skeleton().parents()[1:]]
-                        bone_lengths = torch.mean(torch.norm(dists, dim=3), dim=1)
+                        bone_lengths = torch.mean(torch.norm(dists, dim=3), dim=1)[0]
+                        print("\n BONES LENGTH: \n", bone_lengths)
                         penalty = torch.mean(torch.abs(torch.mean(bone_lengths[[0,2,4,6,8,10,12,14]], dim=0) - torch.mean(bone_lengths[[1,3,5,7,9,11,13,15]], dim=0)))# replace by left kpts
-                        loss_total += penalty
+                        loss_total += cfg.EXPS.LAMBDA_SYM * penalty
                         
                         semi_dists = predicted_semi[:, :, 1:] - predicted_semi[:, :, dataset.skeleton().parents()[1:]]
                         semi_bone_lengths = torch.mean(torch.norm(semi_dists, dim=3), dim=1)
                         semi_penalty = torch.mean(torch.abs(torch.mean(semi_bone_lengths[[0,2,4,6,8,10,12,14]], dim=0) - torch.mean(semi_bone_lengths[[1,3,5,7,9,11,13,15]], dim=0)))# replace by left kpts
-                        loss_total += semi_penalty
+                        loss_total += cfg.EXPS.LAMBDA_SYM * semi_penalty
                         # Add logs to tensorboard
-                        writer.add_scalar('Train_Penalty/Bones_symmetry_penalty', penalty, epoch * train_generator.batch_size + batch_id)
-                        writer.add_scalar('Train_Penalty/Semi/Bones_symmetry_penalty', semi_penalty, epoch * train_generator.batch_size + batch_id)
+                        writer.add_scalar('Train_Penalty/Bones_symmetry_penalty', penalty, epoch * train_generator.num_batches + batch_id)
+                        writer.add_scalar('Train_Penalty/Semi/Bones_symmetry_penalty', semi_penalty, epoch * train_generator.num_batches + batch_id)
 
                     if cfg.EXPS.ILLEGAL_ANGLE:
                         # Compute the vectors associated with bones
-                        up_left_loss, up_right_loss, low_left_loss, low_right_loss, head_loss = angle_error(predicted_semi)
+                        up_left_loss, up_right_loss, low_left_loss, low_right_loss, head_loss = angle_error(predicted_semi, debug=cfg.DEBUG)
 
                         # Compute the angle between these vectors
-                        semi_angles_penalty = up_left_loss * torch.exp(up_left_loss) \
-                                            + up_right_loss * torch.exp(up_right_loss) \
-                                            + low_left_loss * torch.exp(low_left_loss) \
-                                            + low_right_loss * torch.exp(low_right_loss) \
-                                            + head_loss * torch.exp(head_loss)
+                        semi_angles_penalty = cfg.EXPS.LAMBDA_ANGLE * torch.mean(head_loss * torch.exp(head_loss)) \
+                                                            + torch.mean(low_right_loss * torch.exp(low_right_loss)) \
+                                                            + torch.mean(low_left_loss * torch.exp(low_left_loss)) \
+                                                            + torch.mean(up_left_loss * torch.exp(up_left_loss)) \
+                                                            + torch.mean(up_right_loss * torch.exp(up_right_loss))
                         loss_total += semi_angles_penalty
                         # Add logs to tensorboard
                         writer.add_scalar('Train_Penalty/Semi/Illegal_angle_penalty', semi_angles_penalty, epoch * train_generator.num_batches + batch_id)
-                        writer.add_scalar('Train_Penalty/Semi/Head_angle_penalty', head_loss * torch.exp(head_loss), epoch * train_generator.num_batches + batch_id)
-                        writer.add_scalar('Train_Penalty/Semi/Up_left_angle_penalty', up_left_loss * torch.exp(up_left_loss), epoch * train_generator.num_batches + batch_id)
-                        writer.add_scalar('Train_Penalty/Semi/Up_right_angle_penalty', up_right_loss * torch.exp(up_right_loss), epoch * train_generator.num_batches + batch_id)
-                        writer.add_scalar('Train_Penalty/Semi/Low_left_angle_penalty', low_left_loss * torch.exp(low_left_loss), epoch * train_generator.num_batches + batch_id)
-                        writer.add_scalar('Train_Penalty/Semi/Low_right_angle_penalty', low_right_loss * torch.exp(low_right_loss), epoch * train_generator.num_batches + batch_id)
+                        writer.add_scalar('Train_Penalty/Semi/Head_angle_penalty', torch.mean(head_loss * torch.exp(head_loss)), epoch * train_generator.num_batches + batch_id)
+                        writer.add_scalar('Train_Penalty/Semi/Up_left_angle_penalty', torch.mean(up_left_loss * torch.exp(up_left_loss)), epoch * train_generator.num_batches + batch_id)
+                        writer.add_scalar('Train_Penalty/Semi/Up_right_angle_penalty', torch.mean(up_right_loss * torch.exp(up_right_loss)), epoch * train_generator.num_batches + batch_id)
+                        writer.add_scalar('Train_Penalty/Semi/Low_left_angle_penalty', torch.mean(low_left_loss * torch.exp(low_left_loss)), epoch * train_generator.num_batches + batch_id)
+                        writer.add_scalar('Train_Penalty/Semi/Low_right_angle_penalty', torch.mean(low_right_loss * torch.exp(low_right_loss)), epoch * train_generator.num_batches + batch_id)
                         
                         # Compute the vectors associated with bones
-                        up_left_loss, up_right_loss, low_left_loss, low_right_loss, head_loss = angle_error(predicted_3d_pos)
+                        up_left_loss, up_right_loss, low_left_loss, low_right_loss, head_loss = angle_error(predicted_3d_pos, debug=cfg.DEBUG)
 
                         # Compute the angle between these vectors
-                        angles_penalty = up_left_loss * torch.exp(up_left_loss) \
-                                            + up_right_loss * torch.exp(up_right_loss) \
-                                            + low_left_loss * torch.exp(low_left_loss) \
-                                            + low_right_loss * torch.exp(low_right_loss) \
-                                            + head_loss * torch.exp(head_loss)
+                        angles_penalty = cfg.EXPS.LAMBDA_ANGLE * torch.mean(head_loss * torch.exp(head_loss)) \
+                                                            + torch.mean(low_right_loss * torch.exp(low_right_loss)) \
+                                                            + torch.mean(low_left_loss * torch.exp(low_left_loss)) \
+                                                            + torch.mean(up_left_loss * torch.exp(up_left_loss)) \
+                                                            + torch.mean(up_right_loss * torch.exp(up_right_loss))
                         loss_total += angles_penalty
                         # Add logs to tensorboard
-                        writer.add_scalar('Train_Penalty/Semi/Illegal_angle_penalty', angles_penalty, epoch * train_generator.num_batches + batch_id)
-                        writer.add_scalar('Train_Penalty/Semi/Head_angle_penalty', head_loss * torch.exp(head_loss), epoch * train_generator.num_batches + batch_id)
-                        writer.add_scalar('Train_Penalty/Semi/Up_left_angle_penalty', up_left_loss * torch.exp(up_left_loss), epoch * train_generator.num_batches + batch_id)
-                        writer.add_scalar('Train_Penalty/Semi/Up_right_angle_penalty', up_right_loss * torch.exp(up_right_loss), epoch * train_generator.num_batches + batch_id)
-                        writer.add_scalar('Train_Penalty/Semi/Low_left_angle_penalty', low_left_loss * torch.exp(low_left_loss), epoch * train_generator.num_batches + batch_id)
-                        writer.add_scalar('Train_Penalty/Semi/Low_right_angle_penalty', low_right_loss * torch.exp(low_right_loss), epoch * train_generator.num_batches + batch_id)
+                        writer.add_scalar('Train_Penalty/Illegal_angle_penalty', angles_penalty, epoch * train_generator.num_batches + batch_id)
+                        writer.add_scalar('Train_Penalty/Head_angle_penalty', torch.mean(head_loss * torch.exp(head_loss)), epoch * train_generator.num_batches + batch_id)
+                        writer.add_scalar('Train_Penalty/Up_left_angle_penalty', torch.mean(up_left_loss * torch.exp(up_left_loss)), epoch * train_generator.num_batches + batch_id)
+                        writer.add_scalar('Train_Penalty/Up_right_angle_penalty', torch.mean(up_right_loss * torch.exp(up_right_loss)), epoch * train_generator.num_batches + batch_id)
+                        writer.add_scalar('Train_Penalty/Low_left_angle_penalty', torch.mean(low_left_loss * torch.exp(low_left_loss)), epoch * train_generator.num_batches + batch_id)
+                        writer.add_scalar('Train_Penalty/Low_right_angle_penalty', torch.mean(low_right_loss * torch.exp(low_right_loss)), epoch * train_generator.num_batches + batch_id)
                         ############################################## END ADDED ######################################################################
                             
                     
@@ -850,7 +855,7 @@ if not cfg.TRAIN.EVALUATE:
     writer.close()
 
 # Evaluate
-def evaluate(test_generator, action=None, return_predictions=False, use_trajectory_model=False):
+def evaluate2(test_generator, action=None, return_predictions=False, use_trajectory_model=False):
     epoch_loss_3d_pos = 0
     epoch_loss_3d_pos_procrustes = 0
     epoch_loss_3d_pos_scale = 0
@@ -922,6 +927,38 @@ def evaluate(test_generator, action=None, return_predictions=False, use_trajecto
     return e1, e2, e3, ev
 
 
+
+# Evaluate
+def evaluate(test_generator, action=None, return_predictions=False, use_trajectory_model=False, nruns=cfg.TRAIN.NRUNS):
+    epoch_loss_3d_pos = []
+    epoch_loss_3d_pos_procrustes = []
+    epoch_loss_3d_pos_scale = []
+    epoch_loss_3d_vel = []
+
+    for run in range(nruns): 
+        fixseed(run)
+        e1, e2, e3, e4 = evaluate2(test_generator, action, return_predictions, use_trajectory_model)
+        epoch_loss_3d_pos.append(e1)
+        epoch_loss_3d_pos_procrustes.append(e2)
+        epoch_loss_3d_pos_scale.append(e3)
+        epoch_loss_3d_vel.append(e4)
+                
+
+        print('------ Action {}: Global Evaluation on {} Runs ------'.format(action, nruns))
+        e1, var_e1 = np.mean(epoch_loss_3d_pos), np.std(epoch_loss_3d_pos)
+        e2, var_e2 = np.mean(epoch_loss_3d_pos_procrustes), np.std(epoch_loss_3d_pos_procrustes)
+        e3, var_e3 = np.mean(epoch_loss_3d_pos_scale), np.std(epoch_loss_3d_pos_scale)
+        ev, var_ev = np.mean(epoch_loss_3d_vel), np.std(epoch_loss_3d_vel)
+        print('Test time augmentation:', test_generator.augment_enabled())
+        print('Protocol #1 Error (MPJPE): {} +/- {} mm'.format(e1, var_e1))
+        print('Protocol #2 Error (P-MPJPE): {} +/- {} mm'.format(e2, var_e2))
+        print('Protocol #3 Error (N-MPJPE): {} +/- {} mm'.format(e3, var_e3))
+        print('Velocity Error (MPJVE): {} +/- {} mm'.format(ev, var_ev))
+        print('----------')
+
+    return e1, e2, e3, ev
+
+
 if cfg.VIS.RENDER:
     print('Rendering...')
     
@@ -952,7 +989,8 @@ if cfg.VIS.RENDER:
         if ground_truth is not None:
             # Reapply trajectory
             trajectory = ground_truth[:, :1]
-            ground_truth[:, 1:] += trajectory
+            # ground_truth[:, 1:] += trajectory
+            ground_truth[:, :] += trajectory # Add trajectory to root
             prediction += trajectory
         
         """
@@ -980,7 +1018,7 @@ if cfg.VIS.RENDER:
         
         from common.visualization import render_animation
         render_animation(input_keypoints, keypoints_metadata, anim_output,
-                         dataset.skeleton(), dataset.fps(), cfg.VIS.BITRATE, cam['azimuth'], cfg.VIS.OUTPUT,
+                         dataset.skeleton(), dataset.fps(), cfg.VIS.BITRATE, cfg.VIS.AZIM, cfg.VIS.OUTPUT,
                          limit=cfg.VIS.FRAME_LIMIT, downsample=cfg.VIS.DOWNSAMPLE, size=cfg.VIS.SIZE,
                          input_video_path=cfg.VIS.VIDEO, viewport=(cam['res_w'], cam['res_h']),
                          input_video_skip=cfg.VIS.SKIP)
@@ -1030,32 +1068,57 @@ else:
         
         return out_poses_3d, out_poses_2d
 
-    def run_evaluation(actions, action_filter=None):
+    def run_evaluation(actions, action_filter=None, nruns=cfg.TRAIN.NRUNS):
         errors_p1 = []
         errors_p2 = []
         errors_p3 = []
         errors_vel = []
-
+        import sys
+        
         for action_key in actions.keys():
-            if action_filter is not None:
-                found = False
-                for a in action_filter:
-                    if action_key.startswith(a):
-                        found = True
-                        break
-                if not found:
-                    continue
+            errors_p1_i = []
+            errors_p2_i = []
+            errors_p3_i = []
+            errors_vel_i = []
+            for i in range(nruns):
+                sys.stdout.write("\n        Running Evaluation ..... {} / {}".format(i + 1, nruns))
+                fixseed(i)
+                if action_filter is not None:
+                    found = False
+                    for a in action_filter:
+                        if action_key.startswith(a):
+                            found = True
+                            break
+                    if not found:
+                        continue
 
-            poses_act, poses_2d_act = fetch_actions(actions[action_key])
-            gen = UnchunkedGenerator(None, poses_act, poses_2d_act,
-                                     pad=pad, causal_shift=causal_shift, augment=cfg.MODEL.TEST_TIME_AUGMENTATION,
-                                     kps_left=kps_left, kps_right=kps_right, joints_left=joints_left, joints_right=joints_right)
-            e1, e2, e3, ev = evaluate(gen, action_key)
+                poses_act, poses_2d_act = fetch_actions(actions[action_key])
+                gen = UnchunkedGenerator(None, poses_act, poses_2d_act,
+                                        pad=pad, causal_shift=causal_shift, augment=cfg.MODEL.TEST_TIME_AUGMENTATION,
+                                        kps_left=kps_left, kps_right=kps_right, joints_left=joints_left, joints_right=joints_right)
+                e1, e2, e3, ev = evaluate2(gen, action_key)
+                errors_p1_i.append(e1)
+                errors_p2_i.append(e2)
+                errors_p3_i.append(e3)
+                errors_vel_i.append(ev)
+            e1, var_e1 = np.mean(errors_p1_i), np.std(errors_p1_i)
+            e2, var_e2 = np.mean(errors_p2_i), np.std(errors_p2_i)
+            e3, var_e3 = np.mean(errors_p3_i), np.std(errors_p3_i)
+            ev, var_ev = np.mean(errors_vel_i), np.std(errors_vel_i)
             errors_p1.append(e1)
             errors_p2.append(e2)
             errors_p3.append(e3)
             errors_vel.append(ev)
+            
+            print('------ Action {}: Eval on {} Runs ------'.format(action, nruns))
+            print('Test time augmentation:', test_generator.augment_enabled())
+            print('Protocol #1 Error (MPJPE): {} +/- {} mm'.format(round(e1, 1), round(var_e1, 1)))
+            print('Protocol #2 Error (P-MPJPE): {} +/- {} mm'.format(round(e2, 1), round(var_e2, 1)))
+            print('Protocol #3 Error (N-MPJPE): {} +/- {} mm'.format(round(e3, 1), round(var_e3, 1)))
+            print('Velocity Error (MPJVE): {} +/- {} mm'.format(round(ev, 1), round(var_ev, 1)))
+            print('----------\n')
 
+        print()
         print('Protocol #1   (MPJPE) action-wise average:', round(np.mean(errors_p1), 1), 'mm')
         print('Protocol #2 (P-MPJPE) action-wise average:', round(np.mean(errors_p2), 1), 'mm')
         print('Protocol #3 (N-MPJPE) action-wise average:', round(np.mean(errors_p3), 1), 'mm')
