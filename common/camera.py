@@ -13,7 +13,7 @@ from common.quaternion import qrot, qinverse
 
 def normalize_screen_coordinates(X, w, h): 
     assert X.shape[-1] == 2
-    print("X shape: ", X.shape)
+    print("\r Normalizing Screen coordinates ...")
     new_X = np.zeros(X.shape)
     # Normalize so that [0, w] is mapped to [-1, 1], while preserving the aspect ratio
     for frame_id in range(X.shape[0]):

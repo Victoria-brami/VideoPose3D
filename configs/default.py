@@ -71,8 +71,11 @@ _C.TRAIN.NRUNS = 10
 _C.EXPS = CN()
 _C.EXPS.BONE_SYM = False
 _C.EXPS.ILLEGAL_ANGLE = False
+_C.EXPS.CONSTRAIN_3D = False
 _C.EXPS.LAMBDA_SYM = 0.
 _C.EXPS.LAMBDA_ANGLE = 0.
+_C.EXPS.LAMBDA_3D = 1. 
+_C.EXPS.DECAY_ANGLE_LAB = 1.
 _C.EXPS.NO_PROJ = False
 _C.EXPS.SUBSET = 1.
 _C.EXPS.DOWNSAMPLE = 1
@@ -100,10 +103,10 @@ def update_config(cfg, args):
     cfg.defrost()
     cfg.merge_from_file(args.cfg)
     
-    if not cfg.TRAIN.IS_TRAIN:
+    if not cfg.TRAIN.IS_TRAIN and len(cfg.TRAIN.EVALUATE) == 0:
         checkpoint_path = os.path.join("checkpoint")
         if cfg.MODEL.CAUSAL:
-            checkpoint_path = os.path.join(checkpoint_path, "causal")
+            checkpoint_path = os.path.join(checkpoint_path, "causal_lr0.98")
         if len(cfg.DATASET.SUBJECTS_UNLABELED) > 0:
             checkpoint_path = os.path.join(checkpoint_path, "semi_supervised")
         else:
@@ -157,6 +160,12 @@ def update_config(cfg, args):
                 elif not cfg.EXPS.BONE_SYM and cfg.EXPS.ILLEGAL_ANGLE:
                     checkpoint_path += '_angle_{}'.format(cfg.EXPS.LAMBDA_ANGLE)
                     tb_path += '_angle_{}'.format(cfg.EXPS.LAMBDA_ANGLE)
+                if cfg.EXPS.DECAY_ANGLE_LAB != 1.:
+                    checkpoint_path += '_decay_{}'.format(cfg.EXPS.DECAY_ANGLE_LAB)
+                    tb_path += '_decay_{}'.format(cfg.EXPS.DECAY_ANGLE_LAB)
+                if cfg.EXPS.LAMBDA_3D != 1.:
+                    checkpoint_path += '_3d_constrain_{}'.format(cfg.EXPS.LAMBDA_3D)
+                    tb_path += '_3d_constrain_{}'.format(cfg.EXPS.LAMBDA_3D)
                 cfg.LOGS.TENSORBOARD = tb_path
                 cfg.LOGS.CHECKPOINT = checkpoint_path
     cfg.freeze()

@@ -14,7 +14,7 @@ MODEL:
   BATCH_SIZE: 1024
   LR: 0.001
   DROPOUT: 0.25
-  LR_DECAY: 0.98
+  LR_DECAY: 0.95
   AUGMENTATION: true
   TEST_TIME_AUGMENTATION: true
   ARCHITECTURE: 3,3,3
@@ -22,17 +22,17 @@ MODEL:
   CHANNELS: 1024
   
 TRAIN:
-  IS_TRAIN: true
+  IS_TRAIN: false
   RESUME: ''
-  EVALUATE: ''
+  EVALUATE: 'checkpoint/causal/fully_supervised/3x3x3/epoch_80.bin'
   BY_SUBJECT: false
   NRUNS: 10
 
 EXPS:
   BONE_SYM: false
-  ILLEGAL_ANGLE: true
-  LAMBDA_SYM: 0.000
-  LAMBDA_ANGLE: 1000.0
+  ILLEGAL_ANGLE: false
+  LAMBDA_SYM: 0.001
+  LAMBDA_ANGLE: 5.
   NO_PROJ: false
   SUBSET: 1.
   DOWNSAMPLE: 1
