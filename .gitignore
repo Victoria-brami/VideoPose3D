@@ -1,3 +1,8 @@
 checkpoint/*/*.bin
 __pycache__/
 */__pycache__/
+checkpoint/
+logs/
+logs/*
+*.gif
+*.mp4
