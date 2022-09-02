@@ -26,7 +26,7 @@ TRAIN:
   RESUME: ''
   EVALUATE: 'checkpoint/causal/fully_supervised/3x3x3/epoch_80.bin'
   BY_SUBJECT: false
-  NRUNS: 10
+  NRUNS: 1
 
 EXPS:
   BONE_SYM: false

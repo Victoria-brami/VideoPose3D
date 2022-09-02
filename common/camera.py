@@ -17,7 +17,7 @@ def normalize_screen_coordinates(X, w, h):
     new_X = np.zeros(X.shape)
     # Normalize so that [0, w] is mapped to [-1, 1], while preserving the aspect ratio
     for frame_id in range(X.shape[0]):
-        for joint_id in range(17): 
+        for joint_id in range(X.shape[-2]): 
             if X[frame_id, joint_id, 0] != 0 and X[frame_id, joint_id, 1] != 0:
                 new_X[frame_id, joint_id] = X[frame_id, joint_id]/w*2 - [1, h/w]
     # return X/w*2 - [1, h/w]
@@ -28,7 +28,7 @@ def image_coordinates(X, w, h):
     assert X.shape[-1] == 2
     new_X = np.zeros(X.shape)
     for frame_id in range(X.shape[0]):
-        for joint_id in range(17):
+        for joint_id in range(X.shape[-2]):
             if X[frame_id, joint_id, 0] != 0 and X[frame_id, joint_id, 1] != 0:
                 new_X[frame_id, joint_id] = (X[frame_id, joint_id] + [1, h/w])*w/2
     # Reverse camera frame normalization

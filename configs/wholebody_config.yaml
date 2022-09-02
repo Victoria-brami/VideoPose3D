@@ -1,16 +1,16 @@
 DEBUG: false
 
 DATASET:
-  DATASET: 'dad'
+  DATASET: 'inter_70000_dad_wholebody' #'corrected_dad_wholebody'
   KEYPOINTS: 'gt_train'
-  SUBJECTS_TRAIN: 'vp1,vp2,vp3,vp4,vp5,vp6,vp7,vp8,vp9,vp10'
-  SUBJECTS_TEST: 'vp11,vp12'
+  SUBJECTS_TRAIN: 'resized_vp1,resized_vp2,resized_vp3,resized_vp4,resized_vp5,resized_vp6,resized_vp7,resized_vp8,resized_vp9,resized_vp10'
+  SUBJECTS_TEST: 'resized_vp11,resized_vp12'
   SUBJECTS_UNLABELED: ''
   ACTIONS: ''
 
 MODEL:
   STRIDE: 1
-  EPOCHS: 80
+  EPOCHS: 100
   BATCH_SIZE: 1024
   LR: 0.001
   DROPOUT: 0.25
@@ -18,7 +18,7 @@ MODEL:
   AUGMENTATION: true
   TEST_TIME_AUGMENTATION: true
   ARCHITECTURE: 3,3,3,3,3
-  CAUSAL: true
+  CAUSAL: false
   CHANNELS: 1024
   
 TRAIN:
@@ -31,8 +31,8 @@ TRAIN:
 EXPS:
   BONE_SYM: false
   ILLEGAL_ANGLE: false
-  LAMBDA_SYM: 1.
-  LAMBDA_ANGLE: 1.0
+  LAMBDA_SYM: 1000.0
+  LAMBDA_ANGLE: 0.001
   NO_PROJ: false
   SUBSET: 1.
   DOWNSAMPLE: 1
@@ -63,9 +63,9 @@ LOGS:
   EXPORT_TRAINING_CURVES: true
   CHECKPOINT: ''
   SAVE_CHECKPOINT: true
-  CHECKPOINT_FREQUENCY: 100
-  SEQ_START: 2000
-  SEQ_LENGTH: 10000
-  PAD: 2000
+  CHECKPOINT_FREQUENCY: 20
+  SEQ_START: 0 #2000
+  SEQ_LENGTH: 5000 #10000
+  PAD: 50 #2000
 
    

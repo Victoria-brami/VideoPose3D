@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 #
 
+import json
 import matplotlib
 import torch
 matplotlib.use('Agg')
@@ -88,6 +89,8 @@ def plot_2d_skeleton(frame_id, keypoints, all_frames, parents, ax):
             and (keypoints[frame_id, 5, 1] != 0 and keypoints[frame_id, 6, 1] != 0) :   
             ax.plot([keypoints[frame_id, 5, 0], keypoints[frame_id, 6, 0]],
                     [keypoints[frame_id, 5, 1], keypoints[frame_id, 6, 1]], color="cornflowerblue")
+            
+    plt.savefig('/root/no_backup/tmp2d'+ str(frame_id) + '.jpg')
 
 def plot_3d_skeleton(frame_id, keypoints, poses, parents, skeleton, ax): 
     pos = poses[frame_id]
@@ -107,7 +110,10 @@ def plot_3d_skeleton(frame_id, keypoints, poses, parents, skeleton, ax):
         if (keypoints[frame_id, 5, 0] != 0 and keypoints[frame_id, 6, 0] != 0) \
             and (keypoints[frame_id, 5, 1] != 0 and keypoints[frame_id, 6, 1] != 0) :   
             ax.plot(pos[[5, 6], 0], -pos[[5, 6], 1],
-                            pos[[5, 6], 2], c='blue', zdir='y')               
+                            pos[[5, 6], 2], c='blue', zdir='y')        
+        
+             
+    plt.savefig('/root/no_backup/tmp3d'+ str(frame_id) + '.jpg')     
     
 
 def render_opencv_animation(keypoints, keypoints_metadata, poses, skeleton, start_frame, end_frame, azim, output, viewport, fps, 
@@ -151,6 +157,9 @@ def render_opencv_animation(keypoints, keypoints_metadata, poses, skeleton, star
         effective_length = min(keypoints.shape[0], len(all_frames))
         all_frames = all_frames[:effective_length]
         
+    if fps is None:
+        fps = get_fps(input_video_path)
+        
     if downsample > 1:
         keypoints = downsample_tensor(keypoints, downsample)
         all_frames = downsample_tensor(np.array(all_frames), downsample).astype('uint8')
@@ -163,7 +172,7 @@ def render_opencv_animation(keypoints, keypoints_metadata, poses, skeleton, star
     
     videoWriter = cv2.VideoWriter(
         output,
-        cv2.VideoWriter_fourcc(*'mp4v'), fps,
+        cv2.VideoWriter_fourcc('m', 'p', '4', 'v'), fps,
         (size * 1 * len(anim_output) * SUB_FIG_SIZE,
          size * 3 * SUB_FIG_SIZE)) # 100 is the width of a subfigure
     
@@ -246,11 +255,14 @@ def render_opencv_animation(keypoints, keypoints_metadata, poses, skeleton, star
             ax_mpjpe.tick_params(axis="y", labelsize=3*SUB_FIG_SIZE)
             ax_mpjpe.legend(fontsize=3*SUB_FIG_SIZE)
             
+            plt.savefig("/root/no_backup/tmp" + str(frame_id) + ".jpg")
+            plt.show()
+            
             canvas = FigureCanvasAgg(plt.gcf())
             canvas.draw()
             final_img = np.array(canvas.renderer.buffer_rgba())[:, :, [2, 1, 0]]
-
-        #plt.savefig("tmp" + str(frame_i) + ".png")
+            print("final shape: ", final_img.shape)
+            
 
             videoWriter.write(final_img)
             plt.close()
@@ -261,7 +273,386 @@ def render_opencv_animation(keypoints, keypoints_metadata, poses, skeleton, star
             
             
             
+def render_other_animation(keypoints, keypoints_metadata, poses, skeleton, fps, bitrate, azim, output, viewport,
+                     limit=-1, downsample=1, size=6, input_video_path=None, input_video_skip=0, elev=10.):
+    """
+    TODO
+    Render an animation. The supported output modes are:
+     -- 'interactive': display an interactive figure
+                       (also works on notebooks if associated with %matplotlib inline)
+     -- 'html': render the animation as HTML5 video. Can be displayed in a notebook using HTML(...).
+     -- 'filename.mp4': render and export the animation as an h264 video (requires ffmpeg).
+     -- 'filename.gif': render and export the animation a gif file (requires imagemagick).
+    """
     
+    
+    whole_poses = list(poses.values())
+    
+    poses_pred = whole_poses[0]
+    poses_gt = whole_poses[1]
+    
+    print("\n /////////////// Estimated Keypoints in 3D: ///////// \n")
+    print(poses_pred[10, :17, :], poses_gt[10, :17, :])
+    print("\n HEAD \n")
+    print(poses_pred[10, 17:, :], "\n GT", poses_gt[10, 17:, :])
+    
+    
+    poses_pred = poses_pred[:limit-input_video_skip]
+    poses_gt = poses_gt[:limit-input_video_skip]
+    m2mm = 1000
+    new_poses_pred = np.expand_dims(poses_pred, axis=0)
+    new_poses_gt = np.expand_dims(poses_gt, axis=0)
+    
+    # Compute errors between predictions and Ground Truth
+    with torch.no_grad():
+        mpjpe_out = mpjpe_eval(poses_pred, poses_gt) * m2mm
+        n_mpjpe_out = n_mpjpe_eval(poses_pred, poses_gt) * m2mm
+        p_mpjpe_out = p_mpjpe(poses_pred, poses_gt, mode='visu') * m2mm
+        
+        veloc_out =  mean_velocity_error(poses_pred, poses_gt, mode='visu') * m2mm
+    
+    print("Different Metric shapes: MPJPE {} P-MPJPE {} N MPJPE {} Velocity {}".format(mpjpe_out.shape, p_mpjpe_out.shape, n_mpjpe_out.shape, veloc_out))
+    
+    plt.ioff()
+    fig = plt.figure(figsize=(size*(1 + len(poses)), 3*size))
+    ax_in = fig.add_subplot(3, 1 + len(poses), 1)
+    ax_in.get_xaxis().set_visible(False)
+    ax_in.get_yaxis().set_visible(False)
+    ax_in.set_axis_off()
+    ax_in.set_title('Input')
+    
+    SUB_FIG_SIZE = size
+    
+    ax_3d = []
+    lines_3d = []
+    trajectories = []
+    lines_veloc = []
+    lines_mpjpe = []
+    
+    radius = 1.7
+    for index, (title, data) in enumerate(poses.items()):
+        ax = fig.add_subplot(3, 1 + len(poses), index+2, projection='3d')
+        ax.view_init(elev=elev, azim=azim)
+        ax.set_xlim3d([-radius/2, radius/2])
+        ax.set_ylim3d([0, radius])
+        ax.set_ylim3d([radius/2, radius/2*3])
+        ax.set_zlim3d([-radius/2, radius/2]) # exchange limits for y and z
+        try:
+            ax.set_aspect('equal')
+        except NotImplementedError:
+            ax.set_aspect('auto')
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.set_zticklabels([])
+        ax.dist = 7.5
+        ax.set_title(title) #, pad=35
+        ax_3d.append(ax)
+        lines_3d.append([])
+        trajectories.append(data[:, 0, [0, 1]])
+    
+    ax_vel = fig.add_subplot(3, 1, 2)
+    ax_vel.set_title('Velocity Error Visualize', fontsize=3*SUB_FIG_SIZE)
+
+    ax_vel.legend()
+    ax_vel.grid(True)
+    ax_vel.set_xlabel('Frame', fontsize=3*SUB_FIG_SIZE)
+    ax_vel.set_ylabel('Mean Velocity Error (mm/s)', fontsize=3*SUB_FIG_SIZE)
+    ax_vel.set_xlim((0, len(veloc_out)))
+    ax_vel.set_ylim((0, 200))
+    
+    ax_mpjpe = fig.add_subplot(3, 1, 3)
+    ax_mpjpe.set_title('MPJPE Visualize', fontsize=3*SUB_FIG_SIZE)
+    
+    ax_mpjpe.legend()
+    ax_mpjpe.grid(True)
+    ax_mpjpe.set_xlabel('Frame', fontsize=3*SUB_FIG_SIZE)
+    ax_mpjpe.set_ylabel('Mean Position Error (mm)', fontsize=3*SUB_FIG_SIZE)
+    ax_mpjpe.set_xlim((0, len(mpjpe_out)))
+    ax_mpjpe.set_ylim((0, 200))
+    ax_mpjpe.tick_params(axis="x", labelsize=3*SUB_FIG_SIZE)
+    ax_mpjpe.tick_params(axis="y", labelsize=3*SUB_FIG_SIZE)
+    ax_mpjpe.legend(fontsize=4*SUB_FIG_SIZE)
+    
+
+    
+    poses = list(poses.values())
+
+    # Decode video
+    if input_video_path is None:
+        # Black background
+        all_frames = np.zeros((keypoints.shape[0], viewport[1], viewport[0]), dtype='uint8')
+    else:
+        # Load video using ffmpeg
+        all_frames = []
+        for f in read_video(input_video_path, skip=input_video_skip, limit=limit):
+            all_frames.append(f)
+        effective_length = min(keypoints.shape[0], len(all_frames))
+        all_frames = all_frames[:effective_length]
+        
+        """
+        keypoints = keypoints[input_video_skip:] # todo remove
+        for idx in range(len(poses)):
+            poses[idx] = poses[idx][input_video_skip:]
+        """
+        if fps is None:
+            fps = get_fps(input_video_path)
+    
+    if downsample > 1:
+        keypoints = downsample_tensor(keypoints, downsample)
+        all_frames = downsample_tensor(np.array(all_frames), downsample).astype('uint8')
+        for idx in range(len(poses)):
+            poses[idx] = downsample_tensor(poses[idx], downsample)
+            trajectories[idx] = downsample_tensor(trajectories[idx], downsample)
+        fps /= downsample
+
+    initialized = False
+    image = None
+    lines = []
+    points = None
+    
+    if limit < 1:
+        limit = len(all_frames)
+    else:
+        limit = min(limit, len(all_frames))
+    
+    debug_data = []
+
+    parents = skeleton.parents()
+    def update_video(i):
+        nonlocal initialized, image, lines, points
+        print(" Frame {}: GT Neck {} Det Neck {}".format(i, poses[1][i][0], poses[0][i][0]))
+        #for n, ax in enumerate(ax_3d):
+        #    ax.set_xlim3d([-radius/2 + trajectories[n][i, 0], radius/2 + trajectories[n][i, 0]])
+        #    ax.set_ylim3d([-radius/2 + trajectories[n][i, 1], radius/2 + trajectories[n][i, 1]])
+
+        # Update 2D poses
+        joints_right_2d = keypoints_metadata['keypoints_symmetry'][1]
+        colors_2d = np.full(keypoints.shape[1], 'black')
+        colors_2d[joints_right_2d] = 'red'
+        # print("Metrics shapes: ", mpjpe_out.shape, p_mpjpe_out.shape, n_mpjpe_out.shape, veloc_out.shape)
+        if not initialized:
+            image = ax_in.imshow(all_frames[i + input_video_skip], aspect='equal')
+            h, w, _ = all_frames[i + input_video_skip].shape
+            
+            lines_mpjpe.append(ax_mpjpe.plot(np.arange(i+1), mpjpe_out[:i+1], color=(202 / 255, 0 / 255, 32 / 255),
+                label='MPJPE (Protocol #1)'))
+                
+            lines_mpjpe.append(ax_mpjpe.plot(np.arange(i+1), np.mean(p_mpjpe_out[:i+1], axis=1),
+            color=(117/255,112/255,179/255),
+            label='P-MPJPE (Protocol #2)'))
+            lines_mpjpe.append(ax_mpjpe.plot(np.arange(i+1), n_mpjpe_out[:i+1],
+                        color='c',
+                        label='Normalized MPJPE (Protocol #3)'))
+            lines_veloc.append(ax_vel.plot(np.arange(i+1), np.mean(veloc_out[:i+1], axis=1),
+            color=(202 / 255, 0 / 255, 32 / 255),
+            label='velocity Error'))
+            
+            
+            for j, j_parent in enumerate(parents):
+                if j_parent == -1:
+                    continue 
+                if len(parents) == keypoints.shape[1] and keypoints_metadata['layout_name'] != 'coco':
+                    if (keypoints[i, j, 0] > 0 and keypoints[i, j, 1] > 0) and (keypoints[i, j_parent, 0] > 0 and keypoints[i, j_parent, 1] > 0) \
+                    and (keypoints[i, j, 0] < h and keypoints[i, j, 1] < w) and (keypoints[i, j_parent, 0] < h and keypoints[i, j_parent, 1] < w):
+                        # Draw skeleton only if keypoints match (otherwise we don't have the parents definition)
+                        lines.append(ax_in.plot([keypoints[i, j, 0], keypoints[i, j_parent, 0]],
+                                                [keypoints[i, j, 1], keypoints[i, j_parent, 1]], color='pink'))
+                    else:
+                        lines.append(ax_in.plot([0, 0],
+                                                [0, 0], color='white'))
+                col = 'red' if j in skeleton.joints_right() else 'black'
+                for n, ax in enumerate(ax_3d):
+                    pos = poses[n][i]
+                    if (keypoints[i, j, 0] != 0 and keypoints[i, j, 1] != 0) and (keypoints[i, j_parent, 0] != 0 and keypoints[i, j_parent, 1] != 0):
+                        lines_3d[n].append(ax.plot([pos[j, 0], pos[j_parent, 0]],
+                                                [-pos[j, 1], -pos[j_parent, 1]],
+                                                [pos[j, 2], pos[j_parent, 2]], zdir='y', c=col))
+                        
+                    else:
+                         lines_3d[n].append(ax.plot([0, 0],
+                                                [0, 0],
+                                                [0, 0], zdir='y', color="white"))
+
+            
+            if keypoints[i, 11, 0] != 0 and keypoints[i, 12, 0] != 0 and keypoints[i, 11, 1] != 0 and keypoints[i, 12, 1] != 0 :   
+                col = "blue"
+                extra_parent = 12
+                lines.append(ax_in.plot([keypoints[i, 11, 0], keypoints[i, 12, 0]],
+                                                [keypoints[i, 11, 1], keypoints[i, 12, 1]], color=col))
+                for n, ax in enumerate(ax_3d):
+                    pos = poses[n][i]
+                    lines_3d[n].append(ax.plot([pos[11, 0], pos[extra_parent, 0]],
+                                                [-pos[11, 1], -pos[extra_parent, 1]],
+                                                [pos[11, 2], pos[extra_parent, 2]], zdir='y', color=col))
+            else:
+                col = "white"
+                lines.append(ax_in.plot([0, 0], [0, 0], color=col))
+                for n, ax in enumerate(ax_3d):
+                    pos = poses[n][i]
+                    lines_3d[n].append(ax.plot([0, 0],
+                                            [0, 0],
+                                            [0, 0], zdir='y', color=col))
+            
+            
+            if keypoints[i, 5, 0] != 0 and keypoints[i, 6, 0] != 0 and keypoints[i, 5, 1] != 0 and keypoints[i, 6, 1] != 0 :
+                col = "blue"
+                lines.append(ax_in.plot([keypoints[i, 5, 0], keypoints[i, 6, 0]],
+                                            [keypoints[i, 5, 1], keypoints[i, 6, 1]], color=col))
+                extra_parent = 6
+                for n, ax in enumerate(ax_3d):
+                    pos = poses[n][i]
+                    lines_3d[n].append(ax.plot([pos[5, 0], pos[extra_parent, 0]],
+                                            [-pos[5, 1], -pos[extra_parent, 1]],
+                                            [pos[5, 2], pos[extra_parent, 2]], zdir='y', color=col))
+            else:
+                col = "white"
+                lines.append(ax_in.plot([0, 0], [0, 0], color=col))
+                for n, ax in enumerate(ax_3d):
+                    pos = poses[n][i]
+                    lines_3d[n].append(ax.plot([0, 0],
+                                            [0, 0],
+                                            [0, 0], zdir='y', color=col))
+            
+            
+            points = ax_in.scatter(*keypoints[i].T, 10, color=colors_2d, edgecolors='white', zorder=10)
+            initialized = True
+            
+        else:
+            if mpjpe_out[i] > 200:
+                fig = plt.figure(figsize=(16, 8))
+                ax = fig.add_subplot(121)
+                ax.imshow(all_frames[i])
+                plt.title("MPJPE: {} mm".format(mpjpe_out[i]))
+            
+                ax2  = fig.add_subplot(122, projection="3d")
+                ax2.view_init(elev=elev, azim=azim)
+                ax2.set_xlim3d([-radius/2, radius/2])
+                ax2.set_ylim3d([0, radius])
+                ax2.set_ylim3d([radius/2, radius/2*3])
+                ax2.set_zlim3d([-radius/2, radius/2]) # exchange limits for y and z
+                for j, j_parent in enumerate(parents):
+                    if j_parent == -1:
+                        continue
+                    col = "cornflowerblue"
+                    pos = poses[0][i]
+                    pos_gt = poses[1][i]
+                    col_gt = "deeppink"
+                    if (keypoints[i, j, 0] != 0 and keypoints[i, j, 1] != 0) and (keypoints[i, j_parent, 0] != 0 and keypoints[i, j_parent, 1] != 0):
+                        ax.plot([keypoints[i, j, 0], keypoints[i, j_parent, 0]],
+                                            [keypoints[i, j, 1], keypoints[i, j_parent, 1]], c='deeppink')
+                        ax2.plot([pos[j, 0], pos[j_parent, 0]],
+                                                [-pos[j, 1], -pos[j_parent, 1]],
+                                                [pos[j, 2], pos[j_parent, 2]], zdir='y', c=col)
+                        ax2.plot([pos_gt[j, 0], pos_gt[j_parent, 0]],
+                                                [-pos_gt[j, 1], -pos_gt[j_parent, 1]],
+                                                [pos_gt[j, 2], pos_gt[j_parent, 2]], zdir='y', c=col_gt)
+                debug_data.append({"id": int(i+198), "keypoints_gt": keypoints[i, :, :].reshape(-1).tolist(), "keypoints_3d_gt": pos_gt.reshape(-1).tolist(), "keypoints_3d": pos.reshape(-1).tolist()})
+                plt.savefig("/root/no_backup/Debug_figure_{}.png".format(i))
+                    
+                
+            image.set_data(all_frames[i])
+            
+            lines_mpjpe[0][0].set_color((202 / 255, 0 / 255, 32 / 255))
+            lines_mpjpe[0][0].set_data(np.arange(i+1), mpjpe_out[:i+1])
+            lines_mpjpe[0][0].set_label('MPJPE (Protocol #1)')
+                
+            lines_mpjpe[1][0].set_color((117/255,112/255,179/255))
+            lines_mpjpe[1][0].set_data(np.arange(i+1), np.mean(p_mpjpe_out[:i+1], axis=1))
+            lines_mpjpe[1][0].set_label('P-MPJPE (Protocol #2)')
+            lines_mpjpe[2][0].set_color('cyan')
+            lines_mpjpe[2][0].set_data(np.arange(i+1), n_mpjpe_out[:i+1])
+            lines_mpjpe[2][0].set_label('N-MPJPE (Protocol #3)')
+                        
+            lines_veloc[0][0].set_color((202 / 255, 0 / 255, 32 / 255))
+            lines_veloc[0][0].set_data(np.arange(i), np.mean(veloc_out[:i], axis=1))
+ 
+
+            for j, j_parent in enumerate(parents):
+                if j_parent == -1:
+                    continue
+                
+                if len(parents) == keypoints.shape[1] and keypoints_metadata['layout_name'] != 'coco':
+                    if (keypoints[i, j, 0] != 0 and keypoints[i, j, 1] != 0) and (keypoints[i, j_parent, 0] != 0 and keypoints[i, j_parent, 1] != 0):
+                        lines[j-1][0].set_color('pink')
+                        lines[j-1][0].set_data([keypoints[i, j, 0], keypoints[i, j_parent, 0]],
+                                            [keypoints[i, j, 1], keypoints[i, j_parent, 1]])
+                            
+                    else:
+                        lines[j-1][0].set_color('white')
+                        lines[j-1][0].set_data([0, 0],
+                                            [0, 0])
+
+                for n, ax in enumerate(ax_3d):
+                    pos = poses[n][i]
+                    if (keypoints[i, j, 0] != 0 and keypoints[i, j, 1] != 0) and (keypoints[i, j_parent, 0] != 0 and keypoints[i, j_parent, 1] != 0):
+                        lines_3d[n][j-1][0].set_color(colors_2d[j-1])
+                        lines_3d[n][j-1][0].set_xdata(np.array([pos[j, 0], pos[j_parent, 0]]))
+                        lines_3d[n][j-1][0].set_ydata(-np.array([pos[j, 1], pos[j_parent, 1]]))
+                        lines_3d[n][j-1][0].set_3d_properties(np.array([pos[j, 2], pos[j_parent, 2]]), zdir='y')
+                                      
+                    else:
+                        lines_3d[n][j-1][0].set_color("white")
+                        lines_3d[n][j-1][0].set_xdata(np.array([0, 0]))
+                        lines_3d[n][j-1][0].set_ydata(np.array([0, 0]))
+                        lines_3d[n][j-1][0].set_3d_properties(np.array([0, 0]), zdir='y')
+
+                # ADDED BONES
+            if keypoints[i, 11, 0] != 0 and keypoints[i, 12, 0] != 0 and keypoints[i, 11, 1] != 0 and keypoints[i, 12, 1] != 0:
+                lines[len(lines)-2][0].set_color('cornflowerblue')
+                extra_parent = 12
+                lines[len(lines)-2][0].set_data([keypoints[i, 11, 0], keypoints[i, extra_parent, 0]],
+                                            [keypoints[i, 11, 1], keypoints[i, extra_parent, 1]])
+            if  keypoints[i, 5, 0] != 0 and keypoints[i, 6, 0] != 0 and keypoints[i, 5, 1] != 0 and keypoints[i, 6, 1] != 0:
+                lines[len(lines)-1][0].set_color('cornflowerblue')
+                extra_parent = 6
+                lines[len(lines)-1][0].set_data([keypoints[i, 5, 0], keypoints[i, extra_parent, 0]],
+                                            [keypoints[i, 5, 1], keypoints[i, extra_parent, 1]])
+            
+            for n, ax in enumerate(ax_3d): 
+                pos = poses[n][i]         
+                if keypoints[i, 11, 0] != 0 and keypoints[i, 12, 0] != 0 and keypoints[i, 11, 1] != 0 and keypoints[i, 12, 1] != 0:
+                    col = "blue"
+                else:
+                    col = "white"
+                extra_parent = 12
+                lines_3d[n][len(lines_3d[n])-2][0].set_color(col)
+                lines_3d[n][len(lines_3d[n])-2][0].set_xdata(np.array([pos[11, 0], pos[extra_parent, 0]]))
+                lines_3d[n][len(lines_3d[n])-2][0].set_ydata(-np.array([pos[11, 1], pos[extra_parent, 1]]))
+                lines_3d[n][len(lines_3d[n])-2][0].set_3d_properties(np.array([pos[11, 2], pos[extra_parent, 2]]), zdir='y')
+                            
+                if  keypoints[i, 5, 0] != 0 and keypoints[i, 6, 0] != 0 and keypoints[i, 5, 1] != 0 and keypoints[i, 6, 1] != 0:
+                    col = "blue"
+                else:
+                    col = "white"
+                extra_parent = 6
+                lines_3d[n][len(lines_3d[n])-1][0].set_color(col)
+                lines_3d[n][len(lines_3d[n])-1][0].set_xdata(np.array([pos[5, 0], pos[extra_parent, 0]]))
+                lines_3d[n][len(lines_3d[n])-1][0].set_ydata(-np.array([pos[5, 1], pos[extra_parent, 1]]))
+                lines_3d[n][len(lines_3d[n])-1][0].set_3d_properties(np.array([pos[5, 2], pos[extra_parent, 2]]), zdir='y')
+            points.set_offsets(keypoints[i])
+            plt.legend()
+        
+        print('{}/{}      '.format(i, limit), end='\r')
+        
+    
+    fig.tight_layout()
+    
+    anim = FuncAnimation(fig, update_video, frames=np.arange(0, limit), interval=1000/fps, repeat=False)
+    if output.endswith('.mp4'):
+        anim.save(output.replace('.mp4', '_ffmpeg.mp4'), writer='ffmpeg', fps=30)
+        from IPython.display import HTML
+        HTML(anim.to_html5_video())  
+        Writer = writers['ffmpeg']
+        writer = Writer(fps=fps, metadata={}, bitrate=bitrate)
+        anim.save(output, writer=writer)
+    elif output.endswith('.gif'):
+        anim.save(output, dpi=80, writer='imagemagick')
+        #print("\n DEBUG Data contents: ", debug_data[0])
+        with open("/root/no_backup/debug_images.json", "w") as jfile:
+            json.dump(debug_data,  jfile, indent=2)
+    else:
+        raise ValueError('Unsupported output format (only .mp4 and .gif are supported)')
+    plt.close()    
     
 
 
@@ -361,7 +752,7 @@ def render_animation(keypoints, keypoints_metadata, poses, skeleton, fps, bitrat
         colors_2d = np.full(keypoints.shape[1], 'black')
         colors_2d[joints_right_2d] = 'red'
         if not initialized:
-            image = ax_in.imshow(all_frames[i], aspect='equal')
+            image = ax_in.imshow(all_frames[i+ input_video_skip], aspect='equal')
             h, w, _ = all_frames[i].shape
             
             for j, j_parent in enumerate(parents):

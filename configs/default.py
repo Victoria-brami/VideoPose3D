@@ -113,7 +113,7 @@ def update_config(cfg, args):
             checkpoint_path = os.path.join(checkpoint_path, "fully_supervised")
         arc = 'x'.join([str(filt) for filt in cfg.MODEL.ARCHITECTURE])
         checkpoint_path = os.path.join(checkpoint_path, arc)
-               
+            
         if cfg.EXPS.BONE_SYM and not cfg.EXPS.ILLEGAL_ANGLE:
             checkpoint_path += '_sym_{}'.format(cfg.EXPS.LAMBDA_SYM)
         elif cfg.EXPS.BONE_SYM and cfg.EXPS.ILLEGAL_ANGLE:
@@ -151,6 +151,9 @@ def update_config(cfg, args):
                 checkpoint_path = os.path.join(checkpoint_path, arc)
                 tb_path = os.path.join(tb_path, arc)
                 
+                if "wholebody" in cfg.DATASET.DATASET:
+                    checkpoint_path += '_wholebody'
+                    tb_path += '_wholebody'
                 if cfg.EXPS.BONE_SYM and not cfg.EXPS.ILLEGAL_ANGLE:
                     checkpoint_path += '_sym_{}'.format(cfg.EXPS.LAMBDA_SYM)
                     tb_path += '_sym_{}'.format(cfg.EXPS.LAMBDA_SYM)

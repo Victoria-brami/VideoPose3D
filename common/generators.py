@@ -216,7 +216,9 @@ class UnchunkedGenerator:
     def next_epoch(self):
         for seq_cam, seq_3d, seq_2d in zip_longest(self.cameras, self.poses_3d, self.poses_2d):
             batch_cam = None if seq_cam is None else np.expand_dims(seq_cam, axis=0)
+            # batch_cam = None
             batch_3d = None if seq_3d is None else np.expand_dims(seq_3d, axis=0)
+            # print("\n SEQ 2D: ", seq_2d.shape)
             batch_2d = np.expand_dims(np.pad(seq_2d,
                             ((self.pad + self.causal_shift, self.pad - self.causal_shift), (0, 0), (0, 0)),
                             'edge'), axis=0)

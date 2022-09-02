@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 #
 
+from ast import arg
 import numpy as np
 
 from common.arguments import parse_args
@@ -16,9 +17,9 @@ import torch.optim as optim
 import os
 import sys
 import errno
-import valeodata
+#import valeodata
 
-valeodata.download('DriveAndAct')
+#valeodata.download('DriveAndAct')
 
 from common.camera import *
 from common.model import *
@@ -34,6 +35,15 @@ dad_metadata = {
     'keypoints_symmetry': [
         [1, 3, 5, 7, 9, 11, 13, 15],
         [2, 4, 6, 8, 10, 12, 14, 16],
+    ]
+}
+
+dad_face_and_body_metadata = {
+    'layout_name': 'dad_wholebody',
+    'num_joints': 85,
+    'keypoints_symmetry': [
+        [1, 3, 5, 7, 9, 11, 13, 15, 32-6, 33-6, 34-6, 35-6, 36-6, 37-6, 38-6, 39-6, 45-6, 46-6, 47-6, 48-6, 49-6, 65-6, 66-6, 67-6, 68-6, 69-6, 70-6], 
+        [2, 4, 6, 8, 10, 12, 14, 16, 23-6, 24-6, 25-6, 26-6, 27-6, 28-6, 29-6, 30-6, 40-6, 41-6, 42-6, 43-6, 44-6, 59-6, 60-6, 61-6, 62-6, 63-6, 64-6]
     ]
 }
 
@@ -55,6 +65,10 @@ if args.dataset == 'h36m':
 elif args.dataset == 'dad':
     from common.dad_dataset import DadHuman36MDataset
     dataset = DadHuman36MDataset(dataset_path)
+elif 'dad_wholebody' in args.dataset:
+    print("\n Loading WholeBody Dataset ...")
+    from common.dad_dataset import DadHuman36MWholebodyDataset
+    dataset = DadHuman36MWholebodyDataset(dataset_path)
 elif args.dataset.startswith('humaneva'):
     from common.humaneva_dataset import HumanEvaDataset
     dataset = HumanEvaDataset(dataset_path)
@@ -82,8 +96,14 @@ for subject in dataset.subjects():
 
 print('Loading 2D detections...')
 keypoints = np.load('/datasets_local/DriveAndAct/data_2d_' + args.dataset + '_' + args.keypoints + '.npz', allow_pickle=True)
-keypoints_metadata = dad_metadata
-keypoints_symmetry = dad_metadata['keypoints_symmetry']
+if 'wholebody' not in args.dataset:
+    keypoints_metadata = dad_metadata
+    keypoints_symmetry = dad_metadata['keypoints_symmetry']
+    num_joints = dad_metadata['num_joints']
+else:
+    keypoints_metadata = dad_face_and_body_metadata
+    keypoints_symmetry = dad_face_and_body_metadata['keypoints_symmetry']
+    num_joints = dad_face_and_body_metadata['num_joints']
 kps_left, kps_right = list(keypoints_symmetry[0]), list(keypoints_symmetry[1])
 joints_left, joints_right = list(dataset.skeleton().joints_left()), list(dataset.skeleton().joints_right())
 keypoints = keypoints['positions_2d'].item()
@@ -109,7 +129,7 @@ for subject in dataset.subjects():
         
 for subject in keypoints.keys():
     for i, action in enumerate(keypoints[subject]):
-        kps = keypoints[subject][action].reshape((len(keypoints[subject][action]), 17, 3))
+        kps = keypoints[subject][action].reshape((len(keypoints[subject][action]), num_joints, 3))
         # Normalize camera frame
         cam = dataset.cameras()[subject][i]
         kps[..., :2] = normalize_screen_coordinates(kps[..., :2], w=cam['res_w'], h=cam['res_h'])
@@ -161,7 +181,7 @@ def fetch(subjects, action_filter=None, subset=1, parse_3d_poses=True):
                 assert len(poses_3d) == len(poses_2d), 'Camera count mismatch'
                 for i in range(len(poses_3d)): # Iterate across cameras
                     pose_3d = poses_3d[i][args.seq_start: args.seq_start + args.seq_length]
-                    pose_3d = np.reshape(pose_3d, (len(pose_3d), 17, 3))
+                    pose_3d = np.reshape(pose_3d, (len(pose_3d), num_joints, 3))
                     out_poses_3d.append(pose_3d)
     
     if len(out_camera_params) == 0:
@@ -202,7 +222,7 @@ print("Filter Width ", filter_widths)
 if not args.disable_optimizations and not args.dense and args.stride == 1:
     print("Loading Model Pos Train... 1")
     # Use optimized model for single-frame predictions
-    print(poses_valid_2d[0].shape[-2], poses_valid_2d[0].shape[-1])
+    print("\n Input , in_features, out_joints: ", poses_valid_2d[0].shape[-2], poses_valid_2d[0].shape[-1], dataset.skeleton().num_joints())
     model_pos_train = TemporalModelOptimized1f(poses_valid_2d[0].shape[-2], poses_valid_2d[0].shape[-1], dataset.skeleton().num_joints(),
                                 filter_widths=filter_widths, causal=args.causal, dropout=args.dropout, channels=args.channels)
 else:
@@ -861,6 +881,9 @@ def evaluate(test_generator, action=None, return_predictions=False, use_trajecto
             N = 0
             for _, batch, batch_2d in test_generator.next_epoch():
                 inputs_2d = torch.from_numpy(batch_2d.astype('float32'))
+                if N < 100:
+                    print("\n INPUTS 2D: \n ", inputs_2d)
+                    print("\n INPUTS 3D: \n ", batch)
                 if torch.cuda.is_available():
                     inputs_2d = inputs_2d.cuda()
 
@@ -878,6 +901,7 @@ def evaluate(test_generator, action=None, return_predictions=False, use_trajecto
                         predicted_3d_pos[1, :, joints_left + joints_right] = predicted_3d_pos[1, :, joints_right + joints_left]
                     predicted_3d_pos = torch.mean(predicted_3d_pos, dim=0, keepdim=True)
                     
+                    print("\n Predicted Pos is then: \n", predicted_3d_pos.shape)
                 if return_predictions:
                     return predicted_3d_pos.squeeze(0).cpu().numpy()
                     
@@ -1001,7 +1025,8 @@ if args.render:
         if 'positions_3d' in dataset[args.viz_subject][args.viz_action]:
             ground_truth = dataset[args.viz_subject][args.viz_action]['positions_3d'].copy() # removed last key [args.viz_camera]
             # Added
-            ground_truth =  np.reshape(ground_truth[0], (len(ground_truth[0]), 17, 3))
+            ground_truth =  np.reshape(ground_truth[0], (len(ground_truth[0]), num_joints, 3))
+            print("\n     Ground Truth: \n", ground_truth.shape)
     if ground_truth is None:
         print('INFO: this action is unlabeled. Ground truth will not be rendered.')
         
@@ -1009,6 +1034,7 @@ if args.render:
                              pad=pad, causal_shift=causal_shift, augment=args.test_time_augmentation,
                              kps_left=kps_left, kps_right=kps_right, joints_left=joints_left, joints_right=joints_right)
     prediction = evaluate(gen, return_predictions=True)
+    print("\n Prediction Shape is: ", prediction.shape)
     if model_traj is not None and ground_truth is None:
         prediction_traj = evaluate(gen, return_predictions=True, use_trajectory_model=True)
         prediction += prediction_traj
@@ -1019,18 +1045,35 @@ if args.render:
         np.save(args.viz_export, prediction)
     
     if args.viz_output is not None:
+        
         if ground_truth is not None:
+            import copy 
             # Reapply trajectory
-            trajectory = ground_truth[:, :1]
-            #ground_truth[:, 1:] += trajectory
-            #prediction += trajectory
+            m2mm = 1000
+            mpjpe_out_before = np.mean(mpjpe_eval(prediction, ground_truth)) * m2mm
+            trajectory = copy.deepcopy(ground_truth[:, :1])
+            print("GT  and prediction shape: ", trajectory[:, 0, 0].shape, trajectory.shape, ground_truth.shape, prediction.shape, prediction[:, 0, 1].shape)
+            # ground_truth[:, :1] += trajectory
+            # prediction -= prediction[:, :1]
+            # ground_truth[:, 0, 0] -= trajectory[:, 0, 0]
+            ground_truth[:, 0, 1] += trajectory[:, 0, 0]
+            ground_truth[:, 0, 2] += trajectory[:, 0, 0]
+            ground_truth[:, 0, 2] += trajectory[:, 0, 0]
+            ground_truth[:, 0, 2] += trajectory[:, 0, 0]
+              
+            new_trajectory = copy.deepcopy(ground_truth[:, :1])
+            prediction[:, :1] += new_trajectory
+            mpjpe_out_after = np.mean(mpjpe_eval(prediction, ground_truth)) * m2mm
+            
+            print("\n MPJPE Value Before {:.3f} and After: {:.3f}".format(mpjpe_out_before, mpjpe_out_after))
+        
         
         
         # Invert camera transformation
         cam = dataset.cameras()[args.viz_subject][args.viz_camera]
-        # if ground_truth is not None:
-            # prediction = camera_to_world(prediction, R=cam['orientation'], t=cam['translation'])
-            # ground_truth = camera_to_world(ground_truth, R=cam['orientation'], t=cam['translation'])
+        #if ground_truth is not None:
+        #    prediction = camera_to_world(prediction, R=cam['orientation'], t=cam['translation'])
+        #    ground_truth = camera_to_world(ground_truth, R=cam['orientation'], t=cam['translation'])
         #else:
         if ground_truth is None:
             # If the ground truth is not available, take the camera extrinsic params from a random subject.
@@ -1047,16 +1090,35 @@ if args.render:
         if ground_truth is not None and not args.viz_no_ground_truth:
             anim_output['Ground truth'] = ground_truth
         
+        if "wholebody" in args.dataset:
+            cam['res_w'] *= 4
+            cam['res_h'] *= 4
+            print("Skeleton Length: ", len(dataset.skeleton().parents()))
+            print("Predictions length and GT: ", anim_output['Reconstruction'].shape, anim_output['Ground truth'].shape)
         input_keypoints = image_coordinates(input_keypoints[..., :2], w=cam['res_w'], h=cam['res_h'])
-        print("Input Keypoints: ", input_keypoints)
         
-        from common.visualization import render_animation
+        from common.visualization import render_animation, render_opencv_animation, render_other_animation
+        #input_keypoints = keypoints[args.viz_subject][args.viz_action].reshape((keypoints[args.viz_subject][args.viz_action].shape[0], num_joints, 2))
+        dataset._fps = 30
+        # if 'resized' in args.viz_subject:
+        #     input_keypoints[..., :2] *= 4
+               
+        render_other_animation(input_keypoints, keypoints_metadata, anim_output,
+                         dataset.skeleton(), dataset.fps(), args.viz_bitrate, args.viz_azim, args.viz_output,
+                         limit=args.viz_limit, downsample=args.viz_downsample, size=args.viz_size,
+                         input_video_path=args.viz_video, viewport=(cam['res_w'], cam['res_h']),input_video_skip=args.viz_skip, elev=args.viz_elev)
+        """
+        render_opencv_animation(input_keypoints, keypoints_metadata, anim_output,
+                         dataset.skeleton(),  args.viz_skip, 
+                         args.viz_limit, args.viz_azim, args.viz_output, (cam['res_w'], cam['res_h']), dataset.fps(),  
+                         downsample=args.viz_downsample, size=args.viz_size, input_video_path=args.viz_video, elev=10.)
+        
         render_animation(input_keypoints, keypoints_metadata, anim_output,
                          dataset.skeleton(), dataset.fps(), args.viz_bitrate, args.viz_azim, args.viz_output,
                          limit=args.viz_limit, downsample=args.viz_downsample, size=args.viz_size,
                          input_video_path=args.viz_video, viewport=(cam['res_w'], cam['res_h']),
                          input_video_skip=args.viz_skip, elev=args.viz_elev)
-    
+        """
 else:
     print('Evaluating...')
     all_actions = {}
@@ -1088,7 +1150,7 @@ else:
             assert len(poses_3d) == len(poses_2d), 'Camera count mismatch'
             for i in range(len(poses_3d)): # Iterate across cameras
                 pose_3d = poses_3d[i][args.seq_start: args.seq_start + args.seq_length]
-                pose_3d = np.reshape(pose_3d, (len(pose_3d), 17, 3))
+                pose_3d = np.reshape(pose_3d, (len(pose_3d), num_joints, 3))
                 out_poses_3d.append(pose_3d)
     
 

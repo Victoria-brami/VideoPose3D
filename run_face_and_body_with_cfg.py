@@ -32,11 +32,11 @@ from torch.utils.tensorboard import SummaryWriter
 fixseed(44)
 
 dad_metadata = {
-    'layout_name': 'dad',
-    'num_joints': 17,
+    'layout_name': 'dad_wholebody',
+    'num_joints': 85,
     'keypoints_symmetry': [
-        [1, 3, 5, 7, 9, 11, 13, 15],
-        [2, 4, 6, 8, 10, 12, 14, 16],
+        [1, 3, 5, 7, 9, 11, 13, 15, 32-6, 33-6, 34-6, 35-6, 36-6, 37-6, 38-6, 39-6, 45-6, 46-6, 47-6, 48-6, 49-6, 65-6, 66-6, 67-6, 68-6, 69-6, 70-6], 
+        [2, 4, 6, 8, 10, 12, 14, 16, 23-6, 24-6, 25-6, 26-6, 27-6, 28-6, 29-6, 30-6, 40-6, 41-6, 42-6, 43-6, 44-6, 59-6, 60-6, 61-6, 62-6, 63-6, 64-6]
     ]
 }
 
@@ -60,6 +60,9 @@ if cfg.DATASET.DATASET == 'h36m':
 elif cfg.DATASET.DATASET == 'dad':
     from common.dad_dataset import DadHuman36MDataset
     dataset = DadHuman36MDataset(dataset_path)
+elif 'dad_wholebody' in cfg.DATASET.DATASET:
+    from common.dad_dataset import DadHuman36MWholebodyDataset
+    dataset = DadHuman36MWholebodyDataset(dataset_path)
 elif cfg.DATASET.DATASET.startswith('humaneva'):
     from common.humaneva_dataset import HumanEvaDataset
     dataset = HumanEvaDataset(dataset_path)
@@ -89,6 +92,7 @@ print('Loading 2D detections...')
 keypoints = np.load('/datasets_local/DriveAndAct/data_2d_' + cfg.DATASET.DATASET + '_' + cfg.DATASET.KEYPOINTS + '.npz', allow_pickle=True)
 keypoints_metadata = dad_metadata
 keypoints_symmetry = dad_metadata['keypoints_symmetry']
+num_joints = dad_metadata['num_joints']
 kps_left, kps_right = list(keypoints_symmetry[0]), list(keypoints_symmetry[1])
 joints_left, joints_right = list(dataset.skeleton().joints_left()), list(dataset.skeleton().joints_right())
 keypoints = keypoints['positions_2d'].item()
@@ -114,7 +118,7 @@ for subject in dataset.subjects():
         
 for subject in keypoints.keys():
     for i, action in enumerate(keypoints[subject]):
-        kps = keypoints[subject][action].reshape((len(keypoints[subject][action]), 17, 3))
+        kps = keypoints[subject][action].reshape((len(keypoints[subject][action]), num_joints, 3))
         # Normalize camera frame
         cam = dataset.cameras()[subject][i]
         kps[..., :2] = normalize_screen_coordinates(kps[..., :2], w=cam['res_w'], h=cam['res_h'])
@@ -166,7 +170,7 @@ def fetch(subjects, action_filter=None, subset=1, parse_3d_poses=True):
                 assert len(poses_3d) == len(poses_2d), 'Camera count mismatch'
                 for i in range(len(poses_3d)): # Iterate across cameras
                     pose_3d = poses_3d[i][cfg.LOGS.SEQ_START: cfg.LOGS.SEQ_START + cfg.LOGS.SEQ_LENGTH]
-                    pose_3d = np.reshape(pose_3d, (len(pose_3d), 17, 3))
+                    pose_3d = np.reshape(pose_3d, (len(pose_3d), num_joints, 3))
                     out_poses_3d.append(pose_3d)
     
     if len(out_camera_params) == 0:
@@ -692,6 +696,9 @@ if not cfg.TRAIN.EVALUATE:
             if cfg.EXPS.EVAL:
                 # Evaluate on test set
                 for cam, batch, batch_2d in test_generator.next_epoch():
+                    #print("\n Cam: ", cam.shape)
+                    #print("   Batch: ", batch.shape)
+                    #print("   Batch 2D: ", batch_2d.shape)
                     inputs_3d = torch.from_numpy(batch.astype('float32'))
                     inputs_2d = torch.from_numpy(batch_2d.astype('float32'))
                     if torch.cuda.is_available():
@@ -1012,6 +1019,7 @@ if not cfg.TRAIN.EVALUATE:
 # Evaluate
 def evaluate2(test_generator, action=None, return_predictions=False, use_trajectory_model=False):
     epoch_loss_3d_pos = 0
+    epoch_loss_3d_pos_base = 0
     epoch_loss_3d_pos_procrustes = 0
     epoch_loss_3d_pos_scale = 0
     epoch_loss_3d_vel = 0
@@ -1052,6 +1060,7 @@ def evaluate2(test_generator, action=None, return_predictions=False, use_traject
                 inputs_3d = inputs_3d[:1]
 
             error = mpjpe(predicted_3d_pos, inputs_3d, mode='eval')
+            error_base = mpjpe_base(predicted_3d_pos, inputs_3d)
             epoch_loss_3d_pos_scale += inputs_3d.shape[0]*inputs_3d.shape[1] * n_mpjpe(predicted_3d_pos, inputs_3d, mode='eval').item()
 
             m2mm = 1000
@@ -1059,6 +1068,7 @@ def evaluate2(test_generator, action=None, return_predictions=False, use_traject
             if error.item()*m2mm > THRESHOLD:
                 print("Problem detected on Frame {} with inputs shape {}".format(frame_id, inputs_3d.shape))
             epoch_loss_3d_pos += inputs_3d.shape[0]*inputs_3d.shape[1] * error.item()
+            epoch_loss_3d_pos_base += inputs_3d.shape[0]*inputs_3d.shape[1] * error_base.item()
             N += inputs_3d.shape[0] * inputs_3d.shape[1]
             
             inputs = inputs_3d.cpu().numpy().reshape(-1, inputs_3d.shape[-2], inputs_3d.shape[-1])
@@ -1074,6 +1084,7 @@ def evaluate2(test_generator, action=None, return_predictions=False, use_traject
     else:
         print('----'+action+'----')
     """
+    e1_b = (epoch_loss_3d_pos_base / N)*1000
     e1 = (epoch_loss_3d_pos / N)*1000
     e2 = (epoch_loss_3d_pos_procrustes / N)*1000
     e3 = (epoch_loss_3d_pos_scale / N)*1000
@@ -1086,7 +1097,7 @@ def evaluate2(test_generator, action=None, return_predictions=False, use_traject
     print('Velocity Error (MPJVE):', ev, 'mm')
     print('----------')
     """
-    return e1, e2, e3, ev
+    return e1_b, e1, e2, e3, ev
 
 
 
@@ -1130,7 +1141,7 @@ if cfg.VIS.RENDER:
         if 'positions_3d' in dataset[cfg.VIS.SUBJECT][cfg.VIS.ACTION]:
             ground_truth = dataset[cfg.VIS.SUBJECT][cfg.VIS.ACTION]['positions_3d'].copy() # removed last key [cfg.VIS.CAMERA]
             # Added
-            ground_truth =  np.reshape(ground_truth[0], (len(ground_truth[0]), 17, 3))
+            ground_truth =  np.reshape(ground_truth[0], (len(ground_truth[0]), num_joints, 3))
     if ground_truth is None:
         print('INFO: this action is unlabeled. Ground truth will not be rendered.')
         
@@ -1216,7 +1227,7 @@ else:
             assert len(poses_3d) == len(poses_2d), 'Camera count mismatch'
             for i in range(len(poses_3d)): # Iterate across cameras
                 pose_3d = poses_3d[i][cfg.LOGS.SEQ_START: cfg.LOGS.SEQ_START + cfg.LOGS.SEQ_LENGTH]
-                pose_3d = np.reshape(pose_3d, (len(pose_3d), 17, 3))
+                pose_3d = np.reshape(pose_3d, (len(pose_3d), num_joints, 3))
                 out_poses_3d.append(pose_3d)
     
 
@@ -1231,6 +1242,7 @@ else:
         return out_poses_3d, out_poses_2d
 
     def run_evaluation(actions, action_filter=None, nruns=cfg.TRAIN.NRUNS):
+        errors_p1_base = []
         errors_p1 = []
         errors_p2 = []
         errors_p3 = []
@@ -1238,6 +1250,7 @@ else:
         import sys
         
         for action_key in actions.keys():
+            errors_p1_base_i = []
             errors_p1_i = []
             errors_p2_i = []
             errors_p3_i = []
@@ -1258,15 +1271,18 @@ else:
                 gen = UnchunkedGenerator(None, poses_act, poses_2d_act,
                                         pad=pad, causal_shift=causal_shift, augment=cfg.MODEL.TEST_TIME_AUGMENTATION,
                                         kps_left=kps_left, kps_right=kps_right, joints_left=joints_left, joints_right=joints_right)
-                e1, e2, e3, ev = evaluate2(gen, action_key)
+                e1_b, e1, e2, e3, ev = evaluate2(gen, action_key)
+                errors_p1_base_i.append(e1_b)
                 errors_p1_i.append(e1)
                 errors_p2_i.append(e2)
                 errors_p3_i.append(e3)
                 errors_vel_i.append(ev)
+            e1_b, var_e1_b = np.mean(errors_p1_base_i), np.std(errors_p1_base_i)
             e1, var_e1 = np.mean(errors_p1_i), np.std(errors_p1_i)
             e2, var_e2 = np.mean(errors_p2_i), np.std(errors_p2_i)
             e3, var_e3 = np.mean(errors_p3_i), np.std(errors_p3_i)
             ev, var_ev = np.mean(errors_vel_i), np.std(errors_vel_i)
+            errors_p1_base.append(e1_b)
             errors_p1.append(e1)
             errors_p2.append(e2)
             errors_p3.append(e3)
@@ -1281,6 +1297,7 @@ else:
             print('----------\n')
 
         print()
+        print('Protocol #1   (MPJPE) BASIC action-wise average:', round(np.mean(errors_p1_base), 1), 'mm')
         print('Protocol #1   (MPJPE) action-wise average:', round(np.mean(errors_p1), 1), 'mm')
         print('Protocol #2 (P-MPJPE) action-wise average:', round(np.mean(errors_p2), 1), 'mm')
         print('Protocol #3 (N-MPJPE) action-wise average:', round(np.mean(errors_p3), 1), 'mm')
