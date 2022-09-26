@@ -58,6 +58,8 @@ _C.VIS.SIZE = 6
 _C.VIS.DOWNSAMPLE = 4
 _C.VIS.ELEV = 10.
 _C.VIS.AZIM = 250
+_C.VIS.VIDEO_START = 0
+_C.VIS.VIDEO_END = 0
 
 # TRAIN
 _C.TRAIN = CN()
@@ -85,6 +87,9 @@ _C.EXPS.BONE_LENGTH = True
 _C.EXPS.DISABLE_OPTIMIZATIONS = False
 _C.EXPS.EVAL = True
 _C.EXPS.DENSE = False
+_C.EXPS.APPLY_RANDOM_OCCLUSIONS = False
+_C.EXPS.OCCLUSIONS_RATIO = 0.5
+_C.EXPS.MAX_OCCLUSIONS = 40
 
 # LOGS 
 _C.LOGS = CN()
@@ -154,6 +159,12 @@ def update_config(cfg, args):
                 if "wholebody" in cfg.DATASET.DATASET:
                     checkpoint_path += '_wholebody'
                     tb_path += '_wholebody'
+                if cfg.EXPS.APPLY_RANDOM_OCCLUSIONS:
+                    checkpoint_path += "_random_occlusion_{}_{}".format(cfg.EXPS.OCCLUSIONS_RATIO, cfg.EXPS.MAX_OCCLUSIONS)
+                    tb_path += "_random_occlusion_{}_{}".format(cfg.EXPS.OCCLUSIONS_RATIO, cfg.EXPS.MAX_OCCLUSIONS)
+                else: 
+                    cfg.EXPS.OCCLUSIONS_RATIO = 0.0
+
                 if cfg.EXPS.BONE_SYM and not cfg.EXPS.ILLEGAL_ANGLE:
                     checkpoint_path += '_sym_{}'.format(cfg.EXPS.LAMBDA_SYM)
                     tb_path += '_sym_{}'.format(cfg.EXPS.LAMBDA_SYM)
@@ -169,6 +180,10 @@ def update_config(cfg, args):
                 if cfg.EXPS.LAMBDA_3D != 1.:
                     checkpoint_path += '_3d_constrain_{}'.format(cfg.EXPS.LAMBDA_3D)
                     tb_path += '_3d_constrain_{}'.format(cfg.EXPS.LAMBDA_3D)
-                cfg.LOGS.TENSORBOARD = tb_path
-                cfg.LOGS.CHECKPOINT = checkpoint_path
+                checkpoint_path += '_with_conf'
+                tb_path += '_with_conf'
+
+                if len(cfg.TRAIN.EVALUATE) == 0:
+                    cfg.LOGS.TENSORBOARD = tb_path
+                    cfg.LOGS.CHECKPOINT = checkpoint_path
     cfg.freeze()
