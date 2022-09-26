@@ -15,6 +15,7 @@ def mpjpe_eval(predicted, target):
     Mean per-joint position error (i.e. mean Euclidean distance),
     often referred to as "Protocol #1" in many papers.
     """
+    print("PRediction shape {} GT shape {}".format(predicted.shape, target.shape))
     assert predicted.shape == target.shape
     
     visible = deepcopy(target) 
@@ -79,7 +80,7 @@ def p_mpjpe(predicted, target, mode='train'):
         visible = target.copy() 
     visible[visible != 0] = 1
     
-    print("\n \n P-MPJPE Shapes: ", target.shape, predicted.shape, visible.shape, (predicted*visible).shape)
+    # print("\n \n P-MPJPE Shapes: ", target.shape, predicted.shape, visible.shape, (predicted*visible).shape)
     
     muX = np.mean(target, axis=1, keepdims=True)
     muY = np.mean(predicted*visible, axis=1, keepdims=True)
@@ -185,8 +186,8 @@ def mean_velocity_error(predicted, target, mode='train'):
     velocity_target = np.diff(target, axis=0)
     
     if mode == 'visu':
-        return np.linalg.norm(velocity_predicted - velocity_target, axis=len(target.shape)-1)
-    return np.mean(np.linalg.norm(velocity_predicted - velocity_target, axis=len(target.shape)-1))
+        return np.linalg.norm(velocity_predicted - velocity_target, axis=len(target.shape)-1).tolist()
+    return np.mean(np.linalg.norm(velocity_predicted - velocity_target, axis=len(target.shape)-1)).tolist()
 
 def angle_error(predicted, upper=True, debug=True):
     """_summary_

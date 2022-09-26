@@ -20,9 +20,9 @@ def parse_args():
                         help='unlabeled subjects separated by comma for self-supervision')
     parser.add_argument('-a', '--actions', default='*', type=str, metavar='LIST',
                         help='actions to train/test on, separated by comma, or * for all')
-    parser.add_argument('-c', '--checkpoint', default='checkpoint', type=str, metavar='PATH',
+    parser.add_argument('-c', '--checkpoint', default='checkpoint/causal/fully_supervised', type=str, metavar='PATH',
                         help='checkpoint directory')
-    parser.add_argument('--checkpoint-frequency', default=20, type=int, metavar='N',
+    parser.add_argument('--checkpoint-frequency', default=80, type=int, metavar='N',
                         help='create a checkpoint every N epochs')
     parser.add_argument('-r', '--resume', default='', type=str, metavar='FILENAME',
                         help='checkpoint to resume (file name)')
@@ -66,16 +66,16 @@ def parse_args():
     parser.add_argument('--no-proj', action='store_true', help='disable projection for semi-supervised setting')
     
     # Visualization
-    parser.add_argument('--viz-subject', type=str, metavar='STR', help='subject to render')
-    parser.add_argument('--viz-action', type=str, metavar='STR', help='action to render')
+    parser.add_argument('--viz-subject', type=str, metavar='STR', help='subject to render', default='resized_vp1')
+    parser.add_argument('--viz-action', type=str, metavar='STR', help='action to render', default='resized_vp1_1')
     parser.add_argument('--viz-camera', type=int, default=0, metavar='N', help='camera to render')
-    parser.add_argument('--viz-video', type=str, metavar='PATH', help='path to input video')
-    parser.add_argument('--viz-skip', type=int, default=0, metavar='N', help='skip first N frames of input video')
-    parser.add_argument('--viz-output', type=str, metavar='PATH', help='output file name (.gif or .mp4)')
+    parser.add_argument('--viz-video', type=str, metavar='PATH', help='path to input video', default='/datasets_local/DriveAndAct/inner_mirror/vp1/run2_2018-05-29-14-33-44.ids_1.mp4')
+    parser.add_argument('--viz-skip', type=int, default=198, metavar='N', help='skip first N frames of input video')
+    parser.add_argument('--viz-output', type=str, metavar='PATH', help='output file name (.gif or .mp4)', default='rendering/several_ch.gif')
     parser.add_argument('--viz-export', type=str, metavar='PATH', help='output file name for coordinates')
     parser.add_argument('--viz-bitrate', type=int, default=-1, metavar='N', help='bitrate for mp4 videos')
     parser.add_argument('--viz-no-ground-truth', action='store_true', help='do not show ground-truth poses')
-    parser.add_argument('--viz-limit', type=int, default=-1, metavar='N', help='only render first N frames')
+    parser.add_argument('--viz-limit', type=int, default=300, metavar='N', help='only render first N frames')
     parser.add_argument('--viz-downsample', type=int, default=1, metavar='N', help='downsample FPS by a factor N')
     parser.add_argument('--viz-size', type=int, default=5, metavar='N', help='image size')
     parser.add_argument('--viz-azim', type=int, default=250, help='Angle for visualization')

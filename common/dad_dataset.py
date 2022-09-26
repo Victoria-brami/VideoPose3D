@@ -401,6 +401,7 @@ class DadHuman36MDataset(H36mTypeDataset):
         for subject, records in data.items():
             self._data[subject] = {}
             for i, (video_name, positions) in enumerate(records.items()):
+                i = 0
                 self._data[subject][video_name] = {
                     'positions': [positions],
                     'cameras': [self._cameras[subject][i]],
@@ -464,6 +465,7 @@ class DadHuman36MWholebodyDataset(H36mTypeDataset):
         for subject, records in data.items():
             self._data[subject] = {}
             for i, (video_name, positions) in enumerate(records.items()):
+                i = 0
                 self._data[subject][video_name] = {
                     'positions': [positions],
                     'cameras': [self._cameras[subject][i]],
