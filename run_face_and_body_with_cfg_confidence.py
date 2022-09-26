@@ -29,7 +29,7 @@ from time import time
 from common.utils import deterministic_random, fixseed
 from torch.utils.tensorboard import SummaryWriter
 
-fixseed(44)
+#fixseed(44)
 
 dad_metadata = {
     'layout_name': 'dad_wholebody',
@@ -47,7 +47,9 @@ print(cfg)
 try:
     # Create checkpoint directory if it does not exist
     if cfg.TRAIN.IS_TRAIN and not os.path.isfile(cfg.LOGS.CHECKPOINT):
-        os.makedirs(cfg.LOGS.CHECKPOINT)
+        #cfg.LOGS.CHECKPOINT += '_with_conf'
+        os.makedirs(cfg.LOGS.CHECKPOINT, exist_ok=True)
+
 except OSError as e:
     if e.errno != errno.EEXIST:
         raise RuntimeError('Unable to create checkpoint directory:', cfg.LOGS.CHECKPOINT)
@@ -123,7 +125,7 @@ for subject in keypoints.keys():
         i = 0 # ADDED
         cam = dataset.cameras()[subject][i]
         kps[..., :2] = normalize_screen_coordinates(kps[..., :2], w=cam['res_w'], h=cam['res_h'])
-        keypoints[subject][action] = kps[..., :2]
+        keypoints[subject][action] = kps #[..., :2]
 subjects_train = cfg.DATASET.SUBJECTS_TRAIN.split(',')
 subjects_semi = [] if not cfg.DATASET.SUBJECTS_UNLABELED else cfg.DATASET.SUBJECTS_UNLABELED.split(',')
 if not cfg.VIS.RENDER:
@@ -154,6 +156,14 @@ def fetch(subjects, action_filter=None, subset=1, parse_3d_poses=True):
             
             for i in range(len(poses_2d)): # Iterate across cameras
                 out_poses_2d.append(poses_2d[i][cfg.LOGS.SEQ_START: cfg.LOGS.SEQ_START + cfg.LOGS.SEQ_LENGTH])
+                """
+                # ADDED FLAGS :
+                flags = out_poses_2d[-1][:, :, 1]
+                flags[flags!=0] = 1
+                flags = flags[:, :, None]
+                out_poses_2d[-1] = np.concatenate((out_poses_2d[-1], flags), axis=-1)
+                """
+                
                 
                
             # Replaced by
@@ -204,8 +214,6 @@ if action_filter is not None:
 print("Loading GT Poses ...")
 cameras_valid, poses_valid, poses_valid_2d = fetch(subjects_test, action_filter)
 print("\n Loaded shapes: cam {}, pose_v {} {}, pose_v_2d {} {}".format(cameras_valid[0].shape, len(poses_valid), poses_valid[0].shape, len(poses_valid_2d), poses_valid_2d[0].shape))
-
-
 print("Loading Model ...")
 filter_widths = [int(x) for x in cfg.MODEL.ARCHITECTURE] # removed.split(',')
 print("Filter Width ", filter_widths)
@@ -620,14 +628,14 @@ if not cfg.TRAIN.EVALUATE:
                 if cfg.EXPS.APPLY_RANDOM_OCCLUSIONS:
                     if np.random.random() < cfg.EXPS.OCCLUSIONS_RATIO:
                         b, f, j, ax = batch_2d.shape
-                        binary_mask = np.random.randint(0, 2, ( b, f, j))
-                        while np.max(np.sum(binary_mask, axis=-1)) > cfg.EXPS.MAX_OCCLUSIONS:
-                            binary_mask = np.random.randint(0, 2, ( b, f, j))
+                        binary_mask = np.random.choice(2, ( b, f, j), p=[0.3, 0.7])
+                        while (85 - np.min(np.sum(binary_mask, axis=-1))) > cfg.EXPS.MAX_OCCLUSIONS: # MAX OCCLUSIONS CORRESPOND TO THE MIn Number of visible joints
+                            binary_mask = np.random.choice(2, ( b, f, j), p=[0.3, 0.7])
                         binary_mask = binary_mask[:, :, :, None]
-                        binary_mask = np.concatenate((binary_mask, binary_mask), axis=-1)
+                        new_binary_mask = np.concatenate((binary_mask, binary_mask), axis=-1)
                         if ax == 3:
-                            binary_mask = np.concatenate((binary_mask, binary_mask), axis=-1)
-                        batch_2d *= binary_mask
+                            new_binary_mask = np.concatenate((new_binary_mask, binary_mask), axis=-1)
+                        batch_2d *= new_binary_mask
                 inputs_3d = torch.from_numpy(batch_3d.astype('float32'))
                 inputs_2d = torch.from_numpy(batch_2d.astype('float32'))
 
@@ -1317,12 +1325,12 @@ else:
         print('Velocity      (MPJVE) action-wise average:', round(np.mean(errors_vel), 2), 'mm')
 
         log_file = open(os.path.join(cfg.LOGS.CHECKPOINT, "mpjpe_scores.txt"), "a+")
-        log_file.write('Model Architecture {} Occlusions Prop {} Max_occlusions{}'.format(cfg.MODEL.ARCHITECTURE, cfg.EXPS.OCCLUSIONS_RATIO, cfg.EXPS.MAX_OCCLUSIONS))
+        log_file.write('Model Architecture {} Occlusions Prop {} Max_occlusions {}'.format(cfg.MODEL.ARCHITECTURE, cfg.EXPS.OCCLUSIONS_RATIO, cfg.EXPS.MAX_OCCLUSIONS))
         log_file.write('Protocol #1   (MPJPE) BASIC action-wise average: {} mm \n'.format(round(np.mean(errors_p1_base), 1)))
         log_file.write('Protocol #1   (MPJPE) action-wise average: {} mm \n'.format(round(np.mean(errors_p1), 1)))
         log_file.write('Protocol #2   (P-MPJPE) action-wise average: {} mm \n'.format(round(np.mean(errors_p2), 1)))
         log_file.write('Protocol #3   (N-MPJPE) action-wise average: {} mm \n'.format(round(np.mean(errors_p3), 1)))
-        log_file.write('Velocity      (MPJVE) action-wise average: {} mm/s \n \n \n '.format(round(np.mean(errors_vel), 2)))
+        log_file.write('Velocity      (MPJVE) action-wise average: {} mm/s \n \n \n'.format(round(np.mean(errors_vel), 2)))
         log_file.close()
 
     if not cfg.TRAIN.BY_SUBJECT:

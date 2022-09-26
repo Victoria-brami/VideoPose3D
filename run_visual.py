@@ -29,7 +29,7 @@ from time import time
 from common.utils import deterministic_random, fixseed
 from torch.utils.tensorboard import SummaryWriter
 
-fixseed(44)
+#fixseed(44)
 
 dad_metadata = {
     'layout_name': 'dad_wholebody',
@@ -44,10 +44,14 @@ args = parse_yacs_args()
 update_config(cfg, args)
 print(cfg)
 
+# args = parse_args()
+
 try:
     # Create checkpoint directory if it does not exist
     if cfg.TRAIN.IS_TRAIN and not os.path.isfile(cfg.LOGS.CHECKPOINT):
-        os.makedirs(cfg.LOGS.CHECKPOINT)
+        #cfg.LOGS.CHECKPOINT += '_with_conf'
+        os.makedirs(cfg.LOGS.CHECKPOINT, exist_ok=True)
+
 except OSError as e:
     if e.errno != errno.EEXIST:
         raise RuntimeError('Unable to create checkpoint directory:', cfg.LOGS.CHECKPOINT)
@@ -117,13 +121,15 @@ for subject in dataset.subjects():
         assert len(keypoints[subject][action]) == len(dataset[subject][action]['positions_3d'][0])
         
 for subject in keypoints.keys():
+    print('SUBJECT is', subject)
+
     for i, action in enumerate(keypoints[subject]):
         kps = keypoints[subject][action].reshape((len(keypoints[subject][action]), num_joints, 3))
         # Normalize camera frame
         i = 0 # ADDED
         cam = dataset.cameras()[subject][i]
         kps[..., :2] = normalize_screen_coordinates(kps[..., :2], w=cam['res_w'], h=cam['res_h'])
-        keypoints[subject][action] = kps[..., :2]
+        keypoints[subject][action] = kps #[..., :2]
 subjects_train = cfg.DATASET.SUBJECTS_TRAIN.split(',')
 subjects_semi = [] if not cfg.DATASET.SUBJECTS_UNLABELED else cfg.DATASET.SUBJECTS_UNLABELED.split(',')
 if not cfg.VIS.RENDER:
@@ -140,6 +146,8 @@ def fetch(subjects, action_filter=None, subset=1, parse_3d_poses=True):
     out_poses_2d = []
     out_camera_params = []
     for subject in subjects:
+        print("Fetched subject: ", subject, type(keypoints))
+        print(keypoints.keys())
         for i, action in enumerate(keypoints[subject].keys()):
             if action_filter is not None:
                 found = False
@@ -154,6 +162,14 @@ def fetch(subjects, action_filter=None, subset=1, parse_3d_poses=True):
             
             for i in range(len(poses_2d)): # Iterate across cameras
                 out_poses_2d.append(poses_2d[i][cfg.LOGS.SEQ_START: cfg.LOGS.SEQ_START + cfg.LOGS.SEQ_LENGTH])
+                """
+                # ADDED FLAGS :
+                flags = out_poses_2d[-1][:, :, 1]
+                flags[flags!=0] = 1
+                flags = flags[:, :, None]
+                out_poses_2d[-1] = np.concatenate((out_poses_2d[-1], flags), axis=-1)
+                """
+                
                 
                
             # Replaced by
@@ -204,8 +220,6 @@ if action_filter is not None:
 print("Loading GT Poses ...")
 cameras_valid, poses_valid, poses_valid_2d = fetch(subjects_test, action_filter)
 print("\n Loaded shapes: cam {}, pose_v {} {}, pose_v_2d {} {}".format(cameras_valid[0].shape, len(poses_valid), poses_valid[0].shape, len(poses_valid_2d), poses_valid_2d[0].shape))
-
-
 print("Loading Model ...")
 filter_widths = [int(x) for x in cfg.MODEL.ARCHITECTURE] # removed.split(',')
 print("Filter Width ", filter_widths)
@@ -244,7 +258,7 @@ if torch.cuda.is_available():
     model_pos = model_pos.cuda()
     model_pos_train = model_pos_train.cuda()
     
-if cfg.TRAIN.RESUME or cfg.TRAIN.EVALUATE:
+if cfg.TRAIN.RESUME: #or cfg.TRAIN.EVALUATE:
     chk_filename = os.path.join(cfg.LOGS.CHECKPOINT, cfg.TRAIN.RESUME if cfg.TRAIN.RESUME else cfg.TRAIN.EVALUATE)
     if cfg.TRAIN.EVALUATE:
         chk_filename = os.path.join(cfg.TRAIN.EVALUATE)
@@ -620,14 +634,14 @@ if not cfg.TRAIN.EVALUATE:
                 if cfg.EXPS.APPLY_RANDOM_OCCLUSIONS:
                     if np.random.random() < cfg.EXPS.OCCLUSIONS_RATIO:
                         b, f, j, ax = batch_2d.shape
-                        binary_mask = np.random.randint(0, 2, ( b, f, j))
-                        while np.max(np.sum(binary_mask, axis=-1)) > cfg.EXPS.MAX_OCCLUSIONS:
-                            binary_mask = np.random.randint(0, 2, ( b, f, j))
+                        binary_mask = np.random.choice(2, ( b, f, j), p=[0.3, 0.7])
+                        while (85 - np.min(np.sum(binary_mask, axis=-1))) > cfg.EXPS.MAX_OCCLUSIONS: # MAX OCCLUSIONS CORRESPOND TO THE MIn Number of visible joints
+                            binary_mask = np.random.choice(2, ( b, f, j), p=[0.3, 0.7])
                         binary_mask = binary_mask[:, :, :, None]
-                        binary_mask = np.concatenate((binary_mask, binary_mask), axis=-1)
+                        new_binary_mask = np.concatenate((binary_mask, binary_mask), axis=-1)
                         if ax == 3:
-                            binary_mask = np.concatenate((binary_mask, binary_mask), axis=-1)
-                        batch_2d *= binary_mask
+                            new_binary_mask = np.concatenate((new_binary_mask, binary_mask), axis=-1)
+                        batch_2d *= new_binary_mask
                 inputs_3d = torch.from_numpy(batch_3d.astype('float32'))
                 inputs_2d = torch.from_numpy(batch_2d.astype('float32'))
 
@@ -1030,7 +1044,7 @@ if not cfg.TRAIN.EVALUATE:
     writer.close()
 
 # Evaluate
-def evaluate2(test_generator, action=None, return_predictions=False, use_trajectory_model=False):
+def evaluate2(test_generator, model_pos, model_traj, action=None, return_predictions=False, use_trajectory_model=False):
     epoch_loss_3d_pos = 0
     epoch_loss_3d_pos_base = 0
     epoch_loss_3d_pos_procrustes = 0
@@ -1115,16 +1129,18 @@ def evaluate2(test_generator, action=None, return_predictions=False, use_traject
 
 
 # Evaluate
-def evaluate(test_generator, action=None, return_predictions=False, use_trajectory_model=False, nruns=cfg.TRAIN.NRUNS):
+def evaluate(test_generator, model_pos, model_traj, action=None, return_predictions=False, use_trajectory_model=False, nruns=cfg.TRAIN.NRUNS):
     epoch_loss_3d_pos = []
+    epoch_loss_3d_pos_b = []
     epoch_loss_3d_pos_procrustes = []
     epoch_loss_3d_pos_scale = []
     epoch_loss_3d_vel = []
 
     for run in range(nruns): 
         fixseed(run)
-        e1, e2, e3, e4 = evaluate2(test_generator, action, return_predictions, use_trajectory_model)
+        e1_b, e1, e2, e3, e4 = evaluate2(test_generator, model_pos, model_traj, action, return_predictions, use_trajectory_model)
         epoch_loss_3d_pos.append(e1)
+        epoch_loss_3d_pos_b.append(e1_b)
         epoch_loss_3d_pos_procrustes.append(e2)
         epoch_loss_3d_pos_scale.append(e3)
         epoch_loss_3d_vel.append(e4)
@@ -1132,22 +1148,28 @@ def evaluate(test_generator, action=None, return_predictions=False, use_trajecto
 
         print('------ Action {}: Global Evaluation on {} Runs ------'.format(action, nruns))
         e1, var_e1 = np.mean(epoch_loss_3d_pos), np.std(epoch_loss_3d_pos)
+        e1_b, var_e1_b = np.mean(epoch_loss_3d_pos), np.std(epoch_loss_3d_pos)
         e2, var_e2 = np.mean(epoch_loss_3d_pos_procrustes), np.std(epoch_loss_3d_pos_procrustes)
         e3, var_e3 = np.mean(epoch_loss_3d_pos_scale), np.std(epoch_loss_3d_pos_scale)
         ev, var_ev = np.mean(epoch_loss_3d_vel), np.std(epoch_loss_3d_vel)
         print('Test time augmentation:', test_generator.augment_enabled())
+        print('Protocol #0 Error (MPJPE NO OCCL): {} +/- {} mm'.format(e1_b, var_e1_b))
         print('Protocol #1 Error (MPJPE): {} +/- {} mm'.format(e1, var_e1))
         print('Protocol #2 Error (P-MPJPE): {} +/- {} mm'.format(e2, var_e2))
         print('Protocol #3 Error (N-MPJPE): {} +/- {} mm'.format(e3, var_e3))
         print('Velocity Error (MPJVE): {} +/- {} mm'.format(ev, var_ev))
         print('----------')
 
-    return e1, e2, e3, ev
+    return e1_b, e1, e2, e3, ev
 
+
+
+args.render = True
+model_traj = None
 
 if cfg.VIS.RENDER:
     print('Rendering...')
-    
+    predictions = []
     input_keypoints = keypoints[cfg.VIS.SUBJECT][cfg.VIS.ACTION].copy() # removed last key [cfg.VIS.CAMERA]
     ground_truth = None
     if cfg.VIS.SUBJECT in dataset.subjects() and cfg.VIS.ACTION in dataset[cfg.VIS.SUBJECT]:
@@ -1155,59 +1177,113 @@ if cfg.VIS.RENDER:
             ground_truth = dataset[cfg.VIS.SUBJECT][cfg.VIS.ACTION]['positions_3d'].copy() # removed last key [cfg.VIS.CAMERA]
             # Added
             ground_truth =  np.reshape(ground_truth[0], (len(ground_truth[0]), num_joints, 3))
+            print("\n     Ground Truth: \n", ground_truth.shape)
     if ground_truth is None:
         print('INFO: this action is unlabeled. Ground truth will not be rendered.')
         
     gen = UnchunkedGenerator(None, None, [input_keypoints],
                              pad=pad, causal_shift=causal_shift, augment=cfg.MODEL.TEST_TIME_AUGMENTATION,
                              kps_left=kps_left, kps_right=kps_right, joints_left=joints_left, joints_right=joints_right)
-    prediction = evaluate(gen, return_predictions=True)
-    if model_traj is not None and ground_truth is None:
-        prediction_traj = evaluate(gen, return_predictions=True, use_trajectory_model=True)
-        prediction += prediction_traj
+    list_checkpoints = cfg.TRAIN.EVALUATE.split(",")
+    no_occl = True
+    for ch in list_checkpoints:
+        chk_filename = os.path.join("checkpoint/causal/fully_supervised", ch)
+        print('Loading checkpoint', chk_filename)
+        checkpoint = torch.load(chk_filename, map_location=lambda storage, loc: storage)
+        print('This model was trained for {} epochs'.format(checkpoint['epoch']))
+        if len(filter_widths) != ch.count("3"):
+            # Reload the model:
+            filter_widths = [3 for _ in range(ch.count("3"))]
+            model_pos = TemporalModel(poses_valid_2d[0].shape[-2], poses_valid_2d[0].shape[-1], dataset.skeleton().num_joints(),
+                            filter_widths=filter_widths, causal=cfg.MODEL.CAUSAL, dropout=cfg.MODEL.DROPOUT, channels=cfg.MODEL.CHANNELS,
+                            dense=cfg.EXPS.DENSE)
+            if torch.cuda.is_available():
+                model_pos.cuda()
+                
+            print("Model loaded!")
+        # model_pos_train.load_state_dict(checkpoint['model_pos'])
+        model_pos.load_state_dict(checkpoint['model_pos'])
+        
+        prediction = evaluate2(gen, model_pos=model_pos, model_traj=model_traj, return_predictions=True)
+        if model_traj is not None and ground_truth is None:
+            prediction_traj = evaluate(gen, return_predictions=True, use_trajectory_model=True)
+            prediction += prediction_traj
     
-    if cfg.VIS.EXPORT is not None:
-        print('Exporting joint positions to', cfg.VIS.EXPORT)
-        # Predictions are in camera space
-        np.save(cfg.VIS.EXPORT, prediction)
+        if cfg.VIS.EXPORT is not None:
+            print('Exporting joint positions to', cfg.VIS.EXPORT)
+            # Predictions are in camera space
+            np.save(cfg.VIS.EXPORT, prediction)
     
-    if cfg.VIS.OUTPUT is not None:
-        if ground_truth is not None:
-            # Reapply trajectory
-            trajectory = ground_truth[:, :1]
-            # ground_truth[:, 1:] += trajectory
-            ground_truth[:, :] += trajectory # Add trajectory to root
-            prediction += trajectory
+        if cfg.VIS.OUTPUT is not None:
+            
+            if ground_truth is not None:
+                import copy 
+                # Reapply trajectory
+                m2mm = 1000
+                mpjpe_out_before = np.mean(mpjpe_eval(prediction, ground_truth)) * m2mm
+                trajectory = copy.deepcopy(ground_truth[:, :1])
+                # ground_truth[:, :1] += trajectory
+                # prediction -= prediction[:, :1]
+                # ground_truth[:, 0, 0] -= trajectory[:, 0, 0]
+                if no_occl:
+                    ground_truth[:, 0, 1] += trajectory[:, 0, 0]
+                    ground_truth[:, 0, 2] += trajectory[:, 0, 0]
+                    ground_truth[:, 0, 2] += trajectory[:, 0, 0]
+                    ground_truth[:, 0, 2] += trajectory[:, 0, 0]
+                    no_occl = False
+                
+                new_trajectory = copy.deepcopy(ground_truth[:, :1])
+                prediction[:, :1] += new_trajectory
+                mpjpe_out_after = np.mean(mpjpe_eval(prediction, ground_truth)) * m2mm
+                
+                print("\n MPJPE Value Before {:.3f} and After: {:.3f}".format(mpjpe_out_before, mpjpe_out_after))
+
+            
         
-        """
-        # Invert camera transformation
-        cam = dataset.cameras()[cfg.VIS.SUBJECT][cfg.VIS.CAMERA]
-        if ground_truth is not None:
-            prediction = camera_to_world(prediction, R=cam['orientation'], t=cam['translation'])
-            ground_truth = camera_to_world(ground_truth, R=cam['orientation'], t=cam['translation'])
-        else:
-            # If the ground truth is not available, take the camera extrinsic params from a random subject.
-            # They are almost the same, and anyway, we only need this for visualization purposes.
-            for subject in dataset.cameras():
-                if 'orientation' in dataset.cameras()[subject][cfg.VIS.CAMERA]:
-                    rot = dataset.cameras()[subject][cfg.VIS.CAMERA]['orientation']
-                    break
-            prediction = camera_to_world(prediction, R=rot, t=0)
-            # We don't have the trajectory, but at least we can rebase the height
-            prediction[:, :, 2] -= np.min(prediction[:, :, 2])
-        """
-        anim_output = {'Reconstruction': prediction}
-        if ground_truth is not None and not cfg.VIS.NO_GT:
-            anim_output['Ground truth'] = ground_truth
         
-        input_keypoints = image_coordinates(input_keypoints[..., :2], w=cam['res_w'], h=cam['res_h'])
-        
-        from common.visualization import render_animation
-        render_animation(input_keypoints, keypoints_metadata, anim_output,
-                         dataset.skeleton(), dataset.fps(), cfg.VIS.BITRATE, cfg.VIS.AZIM, cfg.VIS.OUTPUT,
-                         limit=cfg.VIS.FRAME_LIMIT, downsample=cfg.VIS.DOWNSAMPLE, size=cfg.VIS.SIZE,
-                         input_video_path=cfg.VIS.VIDEO, viewport=(cam['res_w'], cam['res_h']),
-                         input_video_skip=cfg.VIS.SKIP)
+            # Invert camera transformation
+            cam = dataset.cameras()[cfg.VIS.SUBJECT][cfg.VIS.CAMERA]
+            #if ground_truth is not None:
+            #    prediction = camera_to_world(prediction, R=cam['orientation'], t=cam['translation'])
+            #    ground_truth = camera_to_world(ground_truth, R=cam['orientation'], t=cam['translation'])
+            #else:
+            if ground_truth is None:
+                # If the ground truth is not available, take the camera extrinsic params from a random subject.
+                # They are almost the same, and anyway, we only need this for visualization purposes.
+                for subject in dataset.cameras():
+                    if 'orientation' in dataset.cameras()[subject][cfg.VIS.CAMERA]:
+                        rot = dataset.cameras()[subject][cfg.VIS.CAMERA]['orientation']
+                        break
+                prediction = camera_to_world(prediction, R=rot, t=0)
+                # We don't have the trajectory, but at least we can rebase the height
+                prediction[:, :, 2] -= np.min(prediction[:, :, 2])
+            predictions.append(prediction)
+        """"""
+    anim_output = {'Reconstruction': predictions}
+    if ground_truth is not None and not cfg.VIS.NO_GT:
+        anim_output['Ground truth'] = ground_truth
+    
+    if "wholebody" in cfg.DATASET.DATASET:
+        cam['res_w'] *= 4
+        cam['res_h'] *= 4
+        print("Skeleton Length: ", len(dataset.skeleton().parents()))
+        print("Predictions length and GT: ", len(anim_output['Reconstruction']), len(anim_output['Ground truth']))
+    input_keypoints = image_coordinates(input_keypoints[..., :2], w=cam['res_w'], h=cam['res_h'])
+    #cam['res_w'] = int(cam['res_w'] / 4)
+    #cam['res_h'] = int(cam['res_h'] / 4)
+    from common.visualization import render_animation, render_opencv_animation, render_other_animation, render_several_animations
+    #input_keypoints = keypoints[args.viz_subject][args.viz_action].reshape((keypoints[args.viz_subject][args.viz_action].shape[0], num_joints, 2))
+    dataset._fps = 30
+    # if 'resized' in args.viz_subject:
+    #     input_keypoints[..., :2] *= 4
+    input_keypoints[..., :2] /= 4
+
+    list_checkpoints = ["gt"] + list_checkpoints
+    render_several_animations(list_checkpoints, input_keypoints, keypoints_metadata, anim_output,
+                        dataset.skeleton(), dataset.fps(), cfg.VIS.BITRATE, cfg.VIS.AZIM, cfg.VIS.OUTPUT,
+                        limit=cfg.VIS.FRAME_LIMIT, downsample=cfg.VIS.DOWNSAMPLE, size=cfg.VIS.SIZE,
+                        input_video_path=cfg.VIS.VIDEO, viewport=(cam['res_w'], cam['res_h']), 
+                        input_video_skip=cfg.VIS.SKIP, elev=cfg.VIS.ELEV, video_start=cfg.VIS.VIDEO_START, video_end=cfg.VIS.VIDEO_END)
     
 else:
     print('Evaluating...')
@@ -1244,7 +1320,7 @@ else:
                 out_poses_3d.append(pose_3d)
     
 
-        stride = cfg.EXPS.DOWNSAMPLE
+        stride = cfg.VIS.DOWNSAMPLE
         if stride > 1:
             # Downsample as requested
             for i in range(len(out_poses_2d)):
@@ -1254,78 +1330,39 @@ else:
         
         return out_poses_3d, out_poses_2d
 
-    def run_evaluation(actions, action_filter=None, nruns=cfg.TRAIN.NRUNS):
-        errors_p1_base = []
+    def run_evaluation(actions, action_filter=None):
         errors_p1 = []
         errors_p2 = []
         errors_p3 = []
         errors_vel = []
-        import sys
-        
-        for action_key in actions.keys():
-            errors_p1_base_i = []
-            errors_p1_i = []
-            errors_p2_i = []
-            errors_p3_i = []
-            errors_vel_i = []
-            for i in range(nruns):
-                sys.stdout.write("\n        Running Evaluation ..... {} / {}".format(i + 1, nruns))
-                fixseed(i)
-                if action_filter is not None:
-                    found = False
-                    for a in action_filter:
-                        if action_key.startswith(a):
-                            found = True
-                            break
-                    if not found:
-                        continue
 
-                poses_act, poses_2d_act = fetch_actions(actions[action_key])
-                gen = UnchunkedGenerator(None, poses_act, poses_2d_act,
-                                        pad=pad, causal_shift=causal_shift, augment=cfg.MODEL.TEST_TIME_AUGMENTATION,
-                                        kps_left=kps_left, kps_right=kps_right, joints_left=joints_left, joints_right=joints_right)
-                e1_b, e1, e2, e3, ev = evaluate2(gen, action_key)
-                errors_p1_base_i.append(e1_b)
-                errors_p1_i.append(e1)
-                errors_p2_i.append(e2)
-                errors_p3_i.append(e3)
-                errors_vel_i.append(ev)
-            e1_b, var_e1_b = np.mean(errors_p1_base_i), np.std(errors_p1_base_i)
-            e1, var_e1 = np.mean(errors_p1_i), np.std(errors_p1_i)
-            e2, var_e2 = np.mean(errors_p2_i), np.std(errors_p2_i)
-            e3, var_e3 = np.mean(errors_p3_i), np.std(errors_p3_i)
-            ev, var_ev = np.mean(errors_vel_i), np.std(errors_vel_i)
-            errors_p1_base.append(e1_b)
+        for action_key in actions.keys():
+            if action_filter is not None:
+                found = False
+                for a in action_filter:
+                    if action_key.startswith(a):
+                        found = True
+                        break
+                if not found:
+                    continue
+
+            poses_act, poses_2d_act = fetch_actions(actions[action_key])
+            gen = UnchunkedGenerator(None, poses_act, poses_2d_act,
+                                     pad=pad, causal_shift=causal_shift, augment=cfg.MODEL.TEST_TIME_AUGMENTATION,
+                                     kps_left=kps_left, kps_right=kps_right, joints_left=joints_left, joints_right=joints_right)
+            e1, e2, e3, ev = evaluate(gen, action_key)
             errors_p1.append(e1)
             errors_p2.append(e2)
             errors_p3.append(e3)
             errors_vel.append(ev)
-            
-            #print('------ Action {}: Eval on {} Runs ------'.format(action, nruns))
-            #print('Test time augmentation:', test_generator.augment_enabled())
-            #print('Protocol #1 Error (MPJPE): {} +/- {} mm'.format(round(e1, 1), round(var_e1, 1)))
-            #print('Protocol #2 Error (P-MPJPE): {} +/- {} mm'.format(round(e2, 1), round(var_e2, 1)))
-            #print('Protocol #3 Error (N-MPJPE): {} +/- {} mm'.format(round(e3, 1), round(var_e3, 1)))
-            #print('Velocity Error (MPJVE): {} +/- {} mm'.format(round(ev, 1), round(var_ev, 1)))
-            #print('----------\n')
 
-        print()
-        print('Protocol #1   (MPJPE) BASIC action-wise average:', round(np.mean(errors_p1_base), 1), 'mm')
         print('Protocol #1   (MPJPE) action-wise average:', round(np.mean(errors_p1), 1), 'mm')
         print('Protocol #2 (P-MPJPE) action-wise average:', round(np.mean(errors_p2), 1), 'mm')
         print('Protocol #3 (N-MPJPE) action-wise average:', round(np.mean(errors_p3), 1), 'mm')
         print('Velocity      (MPJVE) action-wise average:', round(np.mean(errors_vel), 2), 'mm')
 
-        log_file = open(os.path.join(cfg.LOGS.CHECKPOINT, "mpjpe_scores.txt"), "a+")
-        log_file.write('Model Architecture {} Occlusions Prop {} Max_occlusions{}'.format(cfg.MODEL.ARCHITECTURE, cfg.EXPS.OCCLUSIONS_RATIO, cfg.EXPS.MAX_OCCLUSIONS))
-        log_file.write('Protocol #1   (MPJPE) BASIC action-wise average: {} mm \n'.format(round(np.mean(errors_p1_base), 1)))
-        log_file.write('Protocol #1   (MPJPE) action-wise average: {} mm \n'.format(round(np.mean(errors_p1), 1)))
-        log_file.write('Protocol #2   (P-MPJPE) action-wise average: {} mm \n'.format(round(np.mean(errors_p2), 1)))
-        log_file.write('Protocol #3   (N-MPJPE) action-wise average: {} mm \n'.format(round(np.mean(errors_p3), 1)))
-        log_file.write('Velocity      (MPJVE) action-wise average: {} mm/s \n \n \n '.format(round(np.mean(errors_vel), 2)))
-        log_file.close()
-
-    if not cfg.TRAIN.BY_SUBJECT:
+    by_subject = False
+    if not by_subject:
         run_evaluation(all_actions, action_filter)
     else:
         for subject in all_actions_by_subject.keys():
