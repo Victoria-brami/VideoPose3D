@@ -1,0 +1,76 @@
+DEBUG: false
+
+DATASET:
+  DATASET: 'corrected_dad_wholebody'
+  KEYPOINTS: 'gt_train'
+  SUBJECTS_TRAIN: 'resized_vp11,resized_vp12'
+  SUBJECTS_TEST: 'resized_vp11'
+  SUBJECTS_UNLABELED: ''
+  ACTIONS: 'vp11_72'
+
+MODEL:
+  STRIDE: 1
+  EPOCHS: 100
+  BATCH_SIZE: 1024
+  LR: 0.001
+  DROPOUT: 0.25
+  LR_DECAY: 0.98
+  AUGMENTATION: true
+  TEST_TIME_AUGMENTATION: true
+  ARCHITECTURE: 3,3,3
+  CAUSAL: true
+  CHANNELS: 1024
+  
+TRAIN:
+  IS_TRAIN: false #true
+  RESUME: ''
+  EVALUATE: '3x3x3_wholebody_with_conf/epoch_100.bin' #,3x3x3_wholebody_random_occlusion_0.1_45_with_conf/epoch_100.bin,3x3x3_wholebody_random_occlusion_0.2_45_with_conf/epoch_100.bin,3x3x3_wholebody_random_occlusion_0.4_45_with_conf/epoch_100.bin'
+  BY_SUBJECT: false
+  NRUNS: 1
+
+EXPS:
+  BONE_SYM: false
+  ILLEGAL_ANGLE: false
+  LAMBDA_SYM: 1000.0
+  LAMBDA_ANGLE: 0.001
+  NO_PROJ: false
+  SUBSET: 1.
+  DOWNSAMPLE: 1
+  WARMUP: 10
+  LINEAR_PROJECTION: true
+  BONE_LENGTH: true
+  DISABLE_OPTIMIZATIONS: false
+  EVAL: true
+  DENSE: false
+  APPLY_RANDOM_OCCLUSIONS: false
+  OCCLUSIONS_RATIO: 0.3
+  MAX_OCCLUSIONS: 45
+
+VIS:
+  RENDER: true
+  SUBJECT: 'resized_vp11'
+  ACTION: 'vp11_72'
+  CAMERA: 0
+  VIDEO: '/datasets_local/DriveAndAct/inner_mirror/vp11/run1_2018-05-24-13-44-01.ids_1'
+  SKIP: 0
+  OUTPUT: 'rendering/vp11_72_test_visual_single.gif'
+  EXPORT: ''
+  BITRATE: ''
+  NO_GT: false
+  FRAME_LIMIT: 358
+  DOWNSAMPLE: 1
+  SIZE: 6
+  VIDEO_START: 17174
+  VIDEO_END: 17528
+
+LOGS:
+  TENSORBOARD: ''
+  EXPORT_TRAINING_CURVES: true
+  CHECKPOINT: 'checkpoint/causal/fully_supervised'
+  SAVE_CHECKPOINT: true
+  CHECKPOINT_FREQUENCY: 100
+  SEQ_START: 0 #2000
+  SEQ_LENGTH: 44 #5000 #10000
+  PAD: 50 #2000
+
+   
