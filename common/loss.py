@@ -13,9 +13,9 @@ from copy import deepcopy
 def mpjpe_eval(predicted, target):
     """
     Mean per-joint position error (i.e. mean Euclidean distance),
-    often referred to as "Protocol #1" in many papers.
+    often referred to as "Protocol #1" in many papers. 
+    Discard non visible jints in metric Computation.
     """
-    print("PRediction shape {} GT shape {}".format(predicted.shape, target.shape))
     assert predicted.shape == target.shape
     
     visible = deepcopy(target) 
@@ -80,8 +80,6 @@ def p_mpjpe(predicted, target, mode='train'):
         visible = target.copy() 
     visible[visible != 0] = 1
     
-    # print("\n \n P-MPJPE Shapes: ", target.shape, predicted.shape, visible.shape, (predicted*visible).shape)
-    
     muX = np.mean(target, axis=1, keepdims=True)
     muY = np.mean(predicted*visible, axis=1, keepdims=True)
 
@@ -133,10 +131,7 @@ def n_mpjpe(predicted, target, mode='train'):
         target = torch.from_numpy(target)
         visible = target.clone()
     visible[visible != 0] = 1
-    print('N MPJPE SHapes', predicted.shape, target.shape, visible.shape)
-    
-    #norm_predicted = torch.sum((predicted*visible)**2, dim=len(predicted.shape)-1, keepdim=True)
-    #norm_target = torch.sum(target*predicted, dim=len(predicted.shape)-1, keepdim=True)
+
     norm_predicted = torch.sum((predicted*visible)**2, dim=3, keepdim=True)
     norm_target = torch.sum(target*predicted, dim=3, keepdim=True)
     
@@ -173,7 +168,8 @@ def n_mpjpe_eval(predicted, target):
 
 def mean_velocity_error(predicted, target, mode='train'):
     """
-    Mean per-joint velocity error (i.e. mean Euclidean distance of the 1st derivative)
+    Mean per-joint velocity error 
+    (i.e. mean Euclidean distance of the 1st derivative)
     """
     assert predicted.shape == target.shape
     if torch.is_tensor(target):
@@ -189,8 +185,10 @@ def mean_velocity_error(predicted, target, mode='train'):
         return np.linalg.norm(velocity_predicted - velocity_target, axis=len(target.shape)-1).tolist()
     return np.mean(np.linalg.norm(velocity_predicted - velocity_target, axis=len(target.shape)-1)).tolist()
 
-def angle_error(predicted, upper=True, debug=True):
-    """_summary_
+def angle_error(predicted):
+    """
+    Loss imposed on the angles bones
+    ex: Constraint on the angle made by the SH = shoulder-hip vector and the KF = knee-feet vector
 
     Args:
         predicted (tensor):  (B, S, 17, 3) tensor with the 3d pose
@@ -206,12 +204,18 @@ def angle_error(predicted, upper=True, debug=True):
     lknee, rknee = predicted[:, :, 13], predicted[:, :, 14]
     lfoot, rfoot = predicted[:, :, 15], predicted[:, :, 16]
     
+    # Compute the Vector between shoulders
     v_rs_ls = lshoulder - rshoulder
+    # Compute the Vector between hips
     v_rh_lh = rhip - lhip
     
     # Compute the angle between left lower arm and body
+    
+    # Compute the vector between shoulder and elbow
     v_le_ls = lelbow - lshoulder
+    # Compute the vector between elbow and wrist
     v_lw_le = lwrist - lelbow
+    # 
     n_ls = torch.cross(v_rs_ls, v_le_ls)
     up_left_error = torch.sum(torch.mul(n_ls / torch.norm(n_ls), v_lw_le  / torch.norm(v_lw_le)), dim=-1)
     up_left_error = torch.max(up_left_error, torch.zeros(up_left_error.shape).cuda())
@@ -248,16 +252,6 @@ def angle_error(predicted, upper=True, debug=True):
     head_error = torch.sum(torch.mul(n_le / torch.norm(n_le), n_re / torch.norm(n_re)), dim=-1)
     head_error = torch.max(head_error, torch.zeros(head_error.shape).cuda())
 
-    if debug:
-        print("/////"*5, " ILLEGAL ANGLE ", "/////"*5)
-        print()
-        print("   Head: ", head_error.shape, torch.mean(head_error).item(),torch.mean(head_error*torch.exp(head_error)).item())
-        print("   Up Left: ",  torch.mean(up_left_error).item(), torch.mean(up_left_error*torch.exp(up_left_error)).item())
-        print("   Up Right: ",  torch.mean(up_right_error).item(), torch.mean(up_right_error*torch.exp(up_right_error)).item())
-        print("   Low Left: ",  torch.mean(low_left_error).item(), torch.mean(low_left_error*torch.exp(low_left_error)).item())
-        print("   Low Right: ",  torch.mean(low_right_error).item(), torch.mean(low_right_error*torch.exp(low_right_error)).item())
-        print("   MEAN ERROR: ", torch.mean(up_left_error + up_right_error + low_left_error + low_right_error + head_error).item(), torch.mean((up_left_error + up_right_error + low_left_error + low_right_error + head_error)*torch.exp(up_left_error + up_right_error + low_left_error + low_right_error + head_error)).item())
-        print()
-        print("/////"*15)
+    
     return up_left_error, up_right_error, low_left_error, low_right_error, head_error
     
