@@ -1,6 +1,32 @@
 # 3D human pose estimation in video with temporal convolutions and semi-supervised training
 <p align="center"><img src="images/convolutions_anim.gif" width="50%" alt="" /></p>
 
+# ADDED ITEMS FROM ORIGINAL REPO
+this repo was forked from Dario Pavllo's repositiory. We modified the architecture from the original one, cncatenating confidence scores and taking into input the whole body instead of rough body representation
+
+### How to configurate your files
+Explain more about the structure of VideoPose yaml file to launch experiments (occlusions, symmetry constraints, angle constraints)
+### Retrain VideoPose model with face and body in input
+````
+python run_face_and_body_cfg_with_confidence.py --cfg configs/wholebody/wholebody_config_confidence.yaml
+```
+
+### Evaluate VideoPose model
+Same config file as previously but set EVALUATE at True in the config file.
+````
+python run_face_and_body_cfg_with_confidence.py --cfg configs/wholebody/wholebody_eval_config_confidence.yaml
+```
+
+### Visualisation
+- Single output:
+```
+python run_visual.py --cfg configs/visual/visual_config_single.yaml
+```
+- Visual comparison between different trainings
+```
+python run_visual.py --cfg configs/visual/visual_config_1.yaml
+```
+
 This is the implementation of the approach described in the paper:
 > Dario Pavllo, Christoph Feichtenhofer, David Grangier, and Michael Auli. [3D human pose estimation in video with temporal convolutions and semi-supervised training](https://arxiv.org/abs/1811.11742). In Conference on Computer Vision and Pattern Recognition (CVPR), 2019.
 

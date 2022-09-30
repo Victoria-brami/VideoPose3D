@@ -1,0 +1,74 @@
+DEBUG: false
+
+DATASET:
+  DATASET: 'corrected_dad_wholebody'
+  KEYPOINTS: 'gt_train'
+  SUBJECTS_TRAIN: 'resized_vp1,resized_vp2,resized_vp3,resized_vp4,resized_vp5,resized_vp6,resized_vp7,resized_vp8,resized_vp9,resized_vp10'
+  SUBJECTS_TEST: 'resized_vp11,resized_vp12'
+  SUBJECTS_UNLABELED: ''
+  ACTIONS: ''
+
+MODEL:
+  STRIDE: 1
+  EPOCHS: 100
+  BATCH_SIZE: 1024
+  LR: 0.001
+  DROPOUT: 0.25
+  LR_DECAY: 0.98
+  AUGMENTATION: true
+  TEST_TIME_AUGMENTATION: true
+  ARCHITECTURE: 3,3,3,3,3
+  CAUSAL: true
+  CHANNELS: 1024
+  
+TRAIN:
+  IS_TRAIN: true
+  RESUME: ''
+  EVALUATE: ''
+  BY_SUBJECT: false
+  NRUNS: 1
+
+EXPS:
+  BONE_SYM: false
+  ILLEGAL_ANGLE: false
+  LAMBDA_SYM: 1000.0
+  LAMBDA_ANGLE: 0.001
+  NO_PROJ: false
+  SUBSET: 1.
+  DOWNSAMPLE: 1
+  WARMUP: 10
+  LINEAR_PROJECTION: true
+  BONE_LENGTH: true
+  DISABLE_OPTIMIZATIONS: false
+  EVAL: true
+  DENSE: false
+  APPLY_RANDOM_OCCLUSIONS: true
+  OCCLUSIONS_RATIO: 0.8
+  MAX_OCCLUSIONS: 40
+
+VIS:
+  RENDER: false
+  SUBJECT: ''
+  ACTION: ''
+  CAMERA: 0
+  VIDEO: ''
+  SKIP: 0
+  OUTPUT: ''
+  EXPORT: ''
+  BITRATE: ''
+  NO_GT: false
+  FRAME_LIMIT: 200
+  DOWNSAMPLE: 4
+  SIZE: 6
+
+LOGS:
+  TENSORBOARD: ''
+  EXPORT_TRAINING_CURVES: true
+  CHECKPOINT: ''
+  SAVE_CHECKPOINT: true
+  CHECKPOINT_FREQUENCY: 20
+  SEQ_START: 0 #2000
+  SEQ_LENGTH: 5000 #10000
+  PAD: 50 #2000
+
+   
