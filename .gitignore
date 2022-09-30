@@ -1,8 +1,10 @@
 checkpoint/*/*.bin
+checkpoint/*/*/*.bin
+checkpoint/*/*/*/*.bin
 __pycache__/
 */__pycache__/
 checkpoint/
 logs/
 logs/*
-*.gif
+rendering/*.gif
 *.mp4
